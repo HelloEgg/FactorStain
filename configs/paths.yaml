@@ -1,0 +1,8 @@
+project_root: /local/stevekang/FactorStain
+data_root: /local/stevekang/datasets/FactorStain
+plism_root: /local/stevekang/datasets/FactorStain/PLISM_wsi
+midog_root: /local/stevekang/datasets/FactorStain/MIDOG21
+camelyon_root: /local/stevekang/datasets/FactorStain/CAMELYON17
+hf_home: /local/stevekang/.cache/huggingface
+outputs_root: /local/stevekang/FactorStain/outputs
+

@@ -1,0 +1,26 @@
+milestone: m1_factorial
+seed: 42
+image_size: 256
+batch_size: 32
+num_workers: 8
+epochs: 50
+learning_rate: 0.0002
+weight_decay: 0.0001
+holdout_fraction: 0.18
+morphology_split: [0.70, 0.15, 0.15]
+models: [joint, parallel, factorstain]
+loss_weights:
+  reconstruction: 1.0
+  factorial: 1.0
+  morphology: 0.5
+  factor_correctness: 0.2
+  isolation: 0.2
+fast_dev_epochs: 1
+fast_dev_batches: 3
+bootstrap_samples: 2000
+episodes_per_group: 64
+max_eval_per_protocol: 5000
+decision:
+  win_metrics: 3
+  relative_improvement: 0.05
+  confidence: 0.95

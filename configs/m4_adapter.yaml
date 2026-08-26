@@ -1,0 +1,21 @@
+milestone: m4_adapter
+seed: 42
+models: [uni, virchow2]
+bottleneck_dim: 256
+batch_size: 256
+epochs: 50
+learning_rate: 0.001
+weight_decay: 0.0001
+grl_weight: 1.0
+loss_weights:
+  cf_consistency: 1.0
+  leakage: 0.5
+  biology: 0.5
+  task: 1.0
+fast_dev_epochs: 1
+fast_dev_batches: 3
+decision:
+  leakage_reduction: 0.30
+  max_tissue_drop: 0.02
+  variance_reduction: 0.20
+

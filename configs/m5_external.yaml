@@ -1,0 +1,21 @@
+milestone: m5_external
+seed: 42
+models: [uni, virchow2]
+tile_size: 256
+target_mpp: 0.5
+tissue_threshold: 0.50
+tiles_per_slide: 2000
+batch_size: 128
+num_workers: 8
+mil_epochs: 50
+learning_rate: 0.0001
+weight_decay: 0.0001
+mil_hidden_dim: 256
+fast_dev_epochs: 1
+fast_dev_slides: 10
+midog_patch_size: 256
+hard_negative_radius: 64
+decision:
+  worst_center_delta: 0.02
+  center_gap_reduction: 0.20
+  max_mean_drop: 0.005

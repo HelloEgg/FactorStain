@@ -1,0 +1,18 @@
+milestone: m0_probe
+seed: 42
+image_size: 224
+batch_size: 128
+num_workers: 8
+max_probe_images: 50000
+probe_models: [uni, virchow2]
+probe_classifier: logistic
+test_size: 0.20
+fast_dev_max_images: 2000
+expected:
+  stains: 13
+  scanners: 7
+  tissues: 46
+  approximate_images: 310000
+decision:
+  stain_margin: 0.10
+  scanner_margin: 0.10

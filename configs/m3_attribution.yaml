@@ -1,0 +1,10 @@
+milestone: m3_attribution
+seed: 42
+batch_size: 64
+num_workers: 8
+minimum_complete_cells: 12
+bootstrap_samples: 5000
+decision:
+  go_rho: 0.60
+  drop_rho: 0.40
+

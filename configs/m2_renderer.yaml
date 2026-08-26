@@ -1,0 +1,22 @@
+milestone: m2_renderer
+seed: 42
+image_size: 512
+batch_size: 12
+num_workers: 8
+epochs: 100
+learning_rate: 0.0001
+weight_decay: 0.0001
+models: [factorstain, reverse, parallel, joint]
+loss_weights:
+  reconstruction: 1.0
+  factorial: 1.0
+  morphology: 0.5
+  factor_correctness: 0.2
+  isolation: 0.2
+fast_dev_epochs: 1
+fast_dev_batches: 2
+bootstrap_samples: 5000
+episodes_per_group: 64
+max_eval_per_protocol: 5000
+decision:
+  win_metrics: 3
