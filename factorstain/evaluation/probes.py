@@ -28,6 +28,7 @@ def fit_grouped_probe(
     classifier: str = "logistic",
     test_size: float = 0.20,
     seed: int = 42,
+    max_iter: int = 1000,
 ) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
     encoder = LabelEncoder()
     encoded = encoder.fit_transform(labels.astype(str))
@@ -36,9 +37,9 @@ def fit_grouped_probe(
     if set(groups[train]) & set(groups[test]):
         raise AssertionError("Aligned-group leakage in foundation-model probe")
     if classifier == "mlp":
-        estimator = MLPClassifier(hidden_layer_sizes=(256,), max_iter=200, early_stopping=True, random_state=seed)
+        estimator = MLPClassifier(hidden_layer_sizes=(256,), max_iter=min(max_iter, 200), early_stopping=True, random_state=seed)
     else:
-        estimator = LogisticRegression(max_iter=1000, class_weight="balanced", n_jobs=-1, random_state=seed)
+        estimator = LogisticRegression(max_iter=max_iter, class_weight="balanced", random_state=seed)
     pipeline = make_pipeline(StandardScaler(), estimator)
     pipeline.fit(features[train], encoded[train])
     predictions = pipeline.predict(features[test])
@@ -111,7 +112,7 @@ def tissue_prediction_variation(
     encoded = encoder.transform(labels.astype(str))
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=seed)
     train, test = next(splitter.split(features, encoded, groups))
-    estimator = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000, class_weight="balanced", n_jobs=-1, random_state=seed))
+    estimator = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000, class_weight="balanced", random_state=seed))
     estimator.fit(features[train], encoded[train])
     probabilities = estimator.predict_proba(features[test])
     predictions = estimator.predict(features[test])

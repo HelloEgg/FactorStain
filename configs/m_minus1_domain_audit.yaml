@@ -1,0 +1,47 @@
+milestone: m_minus1_domain_audit
+seed: 42
+
+dinov3:
+  model_name: facebook/dinov3-vitb16-pretrain-lvd1689m
+  batch_size: 64
+  num_workers: 8
+  dtype: bfloat16
+  l2_normalize_for_analysis: true
+
+plism:
+  max_feature_images: 8000
+  fast_dev_images: 500
+  max_images_per_stain: 300
+  max_images_per_scanner: 500
+  controlled_feature_groups: 50
+  fast_dev_controlled_groups: 5
+  random_examples_per_domain: 8
+  controlled_examples: 8
+  minimum_tissue_fraction: 0.05
+  maximum_white_fraction: 0.90
+
+midog:
+  patches_per_scanner: 250
+  fast_dev_patches_per_scanner: 20
+  max_patches_per_case: 8
+  fast_dev_max_patches_per_case: 4
+  patch_size: 512
+  target_mpp: 0.50
+  assumed_mpp: 0.25
+  thumbnail_max_size: 2048
+  minimum_tissue_fraction: 0.10
+  maximum_white_fraction: 0.90
+
+projection:
+  pca_dimensions: 50
+  umap_neighbors: 30
+  umap_min_dist: 0.10
+  silhouette_max_samples: 5000
+
+probe:
+  test_size: 0.20
+  max_iter: 2000
+
+statistics:
+  bootstrap_samples: 5000
+  confidence: 0.95

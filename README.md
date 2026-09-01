@@ -28,6 +28,19 @@ Individual stages are `shell/m0_probe.sh` through `shell/m5_external.sh`. Datase
 cache locations are configured in `configs/paths.yaml`; every other setting can be
 overridden with environment variables documented in the YAML files.
 
+Before M0, an optional frozen-feature preflight inspects raw PLISM/MIDOG21 domains
+and official Meta DINOv3 embeddings without training any FactorStain component:
+
+```bash
+bash shell/m_minus1_domain_audit.sh
+FAST_DEV_RUN=1 bash shell/m_minus1_domain_audit.sh
+```
+
+Its one-page result is `outputs/m_minus1_domain_audit/figures/SUMMARY_DASHBOARD.png`.
+Set `RESAMPLE=1` to rebuild deterministic sample manifests, `FORCE_REEXTRACT=1` to
+replace matching feature caches, or `DINOV3_MODEL=facebook/dinov3-vitl16-pretrain-lvd1689m`
+to select the larger official backbone. Gated model access uses `HF_TOKEN`.
+
 ## Scientific stages
 
 | Stage | Question |
