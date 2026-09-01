@@ -56,11 +56,88 @@ def normalized_advantage(balanced_accuracy: float, chance: float) -> float:
 
 
 def signal_label(advantage: float) -> str:
+    if not np.isfinite(advantage):
+        return "NOT_ESTIMABLE"
     if advantage >= 0.50:
         return "STRONG"
     if advantage >= 0.25:
         return "MODERATE"
     return "WEAK"
+
+
+def _class_aware_group_split(
+    labels: np.ndarray,
+    groups: np.ndarray,
+    test_size: float,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray, str, int]:
+    membership = pd.DataFrame({"group": groups, "label": labels}).drop_duplicates()
+    group_labels = membership.groupby("group").label.agg(set).to_dict()
+    label_groups = membership.groupby("label").group.agg(set).to_dict()
+    unique_groups = np.asarray(sorted(group_labels))
+    labels_set = set(label_groups)
+
+    if all(len(values) == 1 for values in group_labels.values()):
+        rng = np.random.default_rng(seed)
+        test_groups: set[str] = set()
+        for label in sorted(label_groups):
+            candidates = np.asarray(sorted(label_groups[label]))
+            candidates = candidates[rng.permutation(len(candidates))]
+            count = min(len(candidates) - 1, max(1, round(len(candidates) * test_size)))
+            test_groups.update(candidates[:count].tolist())
+        strategy, selected_seed = "class_stratified_groups", seed
+    else:
+        test_groups = set()
+        strategy, selected_seed = "group_shuffle_with_class_coverage", seed
+        for offset in range(2000):
+            candidate_seed = seed + offset
+            splitter = GroupShuffleSplit(
+                n_splits=1, test_size=test_size, random_state=candidate_seed
+            )
+            train, test = next(splitter.split(np.zeros(len(labels)), labels, groups))
+            if set(labels[train]) == labels_set and set(labels[test]) == labels_set:
+                return train, test, strategy, candidate_seed
+
+        # Deterministic coverage-preserving fallback for rare multi-label groups.
+        rng = np.random.default_rng(seed)
+        tie_order = unique_groups[rng.permutation(len(unique_groups))].tolist()
+        tie_rank = {group: position for position, group in enumerate(tie_order)}
+        uncovered = set(labels_set)
+        for label in sorted(
+            labels_set, key=lambda value: (len(label_groups[value]), value)
+        ):
+            if label not in uncovered:
+                continue
+            candidates = []
+            for group in label_groups[label] - test_groups:
+                proposed = test_groups | {group}
+                if all(label_groups[value] - proposed for value in group_labels[group]):
+                    covered = len(group_labels[group] & uncovered)
+                    candidates.append((-covered, tie_rank[group], group))
+            if not candidates:
+                raise RuntimeError(
+                    "Class-aware group splitting could not preserve both train and test coverage; "
+                    f"label={label!r}, groups={sorted(label_groups[label])}"
+                )
+            chosen = min(candidates)[2]
+            test_groups.add(chosen)
+            uncovered -= group_labels[chosen]
+        target_groups = max(1, round(len(unique_groups) * test_size))
+        for group in tie_order:
+            if len(test_groups) >= target_groups:
+                break
+            proposed = test_groups | {group}
+            if all(label_groups[value] - proposed for value in group_labels[group]):
+                test_groups = proposed
+        strategy = "greedy_multilabel_group_coverage"
+
+    test_mask = np.isin(groups, list(test_groups))
+    train, test = np.flatnonzero(~test_mask), np.flatnonzero(test_mask)
+    if set(labels[train]) != labels_set or set(labels[test]) != labels_set:
+        raise RuntimeError(
+            "Class-aware group split failed its class-coverage invariant"
+        )
+    return train, test, strategy, selected_seed
 
 
 def grouped_probe(
@@ -75,44 +152,88 @@ def grouped_probe(
 ) -> tuple[dict, np.ndarray, pd.DataFrame]:
     labels_array = np.asarray(list(labels)).astype(str)
     groups_array = np.asarray(list(groups)).astype(str)
+    if len(labels_array) != len(features) or len(groups_array) != len(features):
+        raise ValueError(
+            f"Probe {dataset}/{target} received mismatched feature/metadata lengths"
+        )
     if len(np.unique(labels_array)) < 2 or len(np.unique(groups_array)) < 2:
         raise ValueError(
             f"Probe {dataset}/{target} requires at least two labels and groups"
         )
-    selected_seed = None
-    selected_split = None
-    for offset in range(100):
-        candidate_seed = seed + offset
-        splitter = GroupShuffleSplit(
-            n_splits=1, test_size=test_size, random_state=candidate_seed
+    class_group_counts = (
+        pd.DataFrame({"label": labels_array, "group": groups_array})
+        .drop_duplicates()
+        .groupby("label")
+        .group.nunique()
+        .to_dict()
+    )
+    supported_classes = sorted(
+        label for label, count in class_group_counts.items() if count >= 2
+    )
+    excluded_classes = sorted(set(class_group_counts) - set(supported_classes))
+    eligible_mask = np.isin(labels_array, supported_classes)
+    eligible_positions = np.flatnonzero(eligible_mask)
+    split = pd.DataFrame(
+        {
+            "dataset": dataset,
+            "target": target,
+            "sample_position": np.arange(len(features)),
+            "group_id": groups_array,
+            "partition": "excluded_insufficient_group_support",
+        }
+    )
+    if len(supported_classes) < 2:
+        metrics = {
+            "accuracy": float("nan"),
+            "balanced_accuracy": float("nan"),
+            "macro_f1": float("nan"),
+            "chance": float(1 / len(supported_classes))
+            if supported_classes
+            else float("nan"),
+            "n_classes": len(supported_classes),
+            "classes": supported_classes,
+            "dataset": dataset,
+            "target": target,
+            "normalized_advantage": float("nan"),
+            "domain_signal": "NOT_ESTIMABLE",
+            "n_train": 0,
+            "n_test": 0,
+            "n_train_groups": 0,
+            "n_test_groups": 0,
+            "group_overlap_count": 0,
+            "excluded_classes": excluded_classes,
+            "class_group_counts": class_group_counts,
+            "n_excluded_samples": int((~eligible_mask).sum()),
+            "split_strategy": "not_estimable",
+        }
+        return (
+            metrics,
+            np.zeros((len(supported_classes), len(supported_classes))),
+            split,
         )
-        train, test = next(splitter.split(features, labels_array, groups_array))
-        class_count = len(np.unique(labels_array))
-        if (
-            len(np.unique(labels_array[train])) == class_count
-            and len(np.unique(labels_array[test])) == class_count
-        ):
-            selected_seed, selected_split = candidate_seed, (train, test)
-            break
-    if selected_split is None:
-        raise RuntimeError(
-            f"Could not construct a useful group-separated split for {dataset}/{target}"
-        )
-    train, test = selected_split
-    train_groups, test_groups = set(groups_array[train]), set(groups_array[test])
+
+    eligible_features = features[eligible_mask]
+    eligible_labels = labels_array[eligible_mask]
+    eligible_groups = groups_array[eligible_mask]
+    train, test, split_strategy, selected_seed = _class_aware_group_split(
+        eligible_labels, eligible_groups, test_size, seed
+    )
+    train_groups, test_groups = set(eligible_groups[train]), set(eligible_groups[test])
     overlap = train_groups & test_groups
     if overlap:
         raise AssertionError(
             f"Group leakage in {dataset}/{target}: {sorted(overlap)[:5]}"
         )
     metrics, confusion, returned_test, _ = fit_grouped_probe(
-        features,
-        labels_array,
-        groups_array,
+        eligible_features,
+        eligible_labels,
+        eligible_groups,
         classifier="logistic",
         test_size=test_size,
         seed=int(selected_seed),
         max_iter=max_iter,
+        train_indices=train,
+        test_indices=test,
     )
     if not np.array_equal(returned_test, test):
         raise AssertionError(
@@ -129,19 +250,16 @@ def grouped_probe(
             "n_train_groups": len(train_groups),
             "n_test_groups": len(test_groups),
             "group_overlap_count": 0,
+            "excluded_classes": excluded_classes,
+            "class_group_counts": class_group_counts,
+            "n_excluded_samples": int((~eligible_mask).sum()),
+            "n_evaluable_samples": len(eligible_positions),
+            "effective_test_fraction": float(len(test) / len(eligible_positions)),
+            "split_strategy": split_strategy,
         }
     )
-    split = pd.DataFrame(
-        {
-            "dataset": dataset,
-            "target": target,
-            "sample_position": np.arange(len(features)),
-            "group_id": groups_array,
-            "partition": np.where(
-                np.isin(np.arange(len(features)), test), "test", "train"
-            ),
-        }
-    )
+    split.loc[eligible_positions[train], "partition"] = "train"
+    split.loc[eligible_positions[test], "partition"] = "test"
     return metrics, confusion, split
 
 

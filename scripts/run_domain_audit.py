@@ -106,16 +106,19 @@ def _metrics_rows(
             "chance",
             "normalized_advantage",
             "group_overlap_count",
+            "n_excluded_samples",
+            "n_evaluable_samples",
         ):
-            rows.append(
-                {
-                    "dataset": probe["dataset"],
-                    "analysis": "dinov3_linear_probe",
-                    "target": probe["target"],
-                    "metric": metric,
-                    "value": probe[metric],
-                }
-            )
+            if metric in probe:
+                rows.append(
+                    {
+                        "dataset": probe["dataset"],
+                        "analysis": "dinov3_linear_probe",
+                        "target": probe["target"],
+                        "metric": metric,
+                        "value": probe[metric],
+                    }
+                )
     for probe in appearance_probes:
         for metric in (
             "accuracy",
@@ -200,12 +203,16 @@ def _report(
     controlled_means = controlled.groupby("category").distance.mean().to_dict()
     same_name = "same morphology / same stain / different scanner"
     same_distance = controlled_means.get(same_name, float("nan"))
-    tissue_relation = (
-        "stronger"
-        if pt["normalized_advantage"]
-        > max(ps["normalized_advantage"], pq["normalized_advantage"])
-        else "weaker"
-    )
+    if np.isfinite(pt["normalized_advantage"]):
+        tissue_answer = (
+            f"Tissue is {'stronger' if pt['normalized_advantage'] > max(ps['normalized_advantage'], pq['normalized_advantage']) else 'weaker'} "
+            f"by normalized probe advantage: tissue {pt['normalized_advantage']:.3f}, stain {ps['normalized_advantage']:.3f}, scanner {pq['normalized_advantage']:.3f}."
+        )
+    else:
+        tissue_answer = (
+            "Tissue strength is not estimable because fewer than two tissue classes had at least two independent aligned groups. "
+            f"Excluded classes: {pt.get('excluded_classes', [])}."
+        )
     bootstrap_text = (
         "; ".join(
             f"vs {item['comparison']}: difference {item['mean_difference']:.4f} (95% CI {item['ci_low']:.4f} to {item['ci_high']:.4f}, {item['n_groups']} aligned groups)"
@@ -238,7 +245,7 @@ Run status: **{validity}**. This preflight is exploratory and does not stop or c
 2. **Are scanner domains visibly different?** Basic appearance statistics predict scanner with aligned-group-held-out BA {apq["balanced_accuracy"]:.3f} (chance {apq["chance"]:.3f}; {apq["domain_signal"]}). Inspect `figures/plism/plism_random_by_scanner.png` and the same-tissue/same-stain grids.
 3. **Are scanner domains separable in DINOv3 space?** {pq["domain_signal"]}: group-held-out BA {pq["balanced_accuracy"]:.3f}, normalized advantage {pq["normalized_advantage"]:.3f}, silhouette {silhouettes["plism/scanner"]["value"]:.3f}.
 4. **Are stain domains separable in DINOv3 space?** {ps["domain_signal"]}: group-held-out BA {ps["balanced_accuracy"]:.3f}, normalized advantage {ps["normalized_advantage"]:.3f}, silhouette {silhouettes["plism/stain"]["value"]:.3f}.
-5. **Is tissue identity stronger or weaker than acquisition identity?** Tissue is {tissue_relation} by normalized probe advantage: tissue {pt["normalized_advantage"]:.3f}, stain {ps["normalized_advantage"]:.3f}, scanner {pq["normalized_advantage"]:.3f}.
+5. **Is tissue identity stronger or weaker than acquisition identity?** {tissue_answer}
 6. **For the same aligned morphology, how much does changing scanner move the embedding?** Mean cosine distance is {same_distance:.4f}. Cluster-bootstrap comparisons: {bootstrap_text}.
 7. **Does scanner information survive morphology control?** The held-out probe has zero aligned-group overlap and BA {pq["balanced_accuracy"]:.3f}. The controlled pair analysis fixes aligned group and stain; its raw pair values are in `metadata/plism_controlled_feature_distances.csv`. This is stronger evidence than UMAP alone, but registration error can still contribute.
 
@@ -259,6 +266,7 @@ PLISM stain comparisons can be serial sections, not literally the same physical 
 - Deterministic seed: {config["seed"]}; exact image paths and coordinates are saved in Parquet manifests.
 - Sample quality/rejection summary: `{json.dumps(rejection, sort_keys=True)}`.
 - All probes are group-held-out. PLISM uses `aligned_group_id`; MIDOG uses `case_id`. Every recorded overlap count is zero.
+- Probe classes represented by fewer than two independent groups cannot occur in both partitions and are excluded transparently. Exclusions are recorded in `metrics.json` and the probe split manifests.
 - PCA coordinates are deterministic; UMAP uses the fixed seed and the same coordinates are recolored across labels.
 - Silhouette scores are descriptive and are not used alone for conclusions.
 
@@ -423,6 +431,11 @@ def main() -> None:
                 config["probe"]["max_iter"],
             )
             probes.append(result)
+            if result.get("excluded_classes"):
+                print(
+                    f"Probe {dataset}/{target}: excluded classes with fewer than two independent groups: "
+                    f"{result['excluded_classes']}"
+                )
             splits.append(split.assign(sample_id=frame.sample_id.to_numpy()))
             confusion[f"{dataset}/{target}"] = matrix.tolist()
     _atomic_parquet(

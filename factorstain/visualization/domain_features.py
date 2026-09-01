@@ -129,13 +129,19 @@ def plot_probe_scores(probes: list[dict], destination: str | Path, title: str) -
     scores = [float(item["balanced_accuracy"]) for item in probes]
     chances = [float(item["chance"]) for item in probes]
     labels = [str(item["domain_signal"]) for item in probes]
+    displayed_scores = [score if np.isfinite(score) else 0.0 for score in scores]
     positions = np.arange(len(targets))
     fig, axis = plt.subplots(figsize=(max(6.5, len(targets) * 2.2), 5.5))
     bars = axis.bar(
         positions,
-        scores,
+        displayed_scores,
         color=[
-            {"STRONG": "#15803d", "MODERATE": "#d97706", "WEAK": "#64748b"}[label]
+            {
+                "STRONG": "#15803d",
+                "MODERATE": "#d97706",
+                "WEAK": "#64748b",
+                "NOT_ESTIMABLE": "#94a3b8",
+            }[label]
             for label in labels
         ],
         alpha=0.85,
@@ -150,10 +156,13 @@ def plot_probe_scores(probes: list[dict], destination: str | Path, title: str) -
         label="chance",
     )
     for bar, score, label in zip(bars, scores, labels):
+        annotation = (
+            f"{score:.3f}\n{label}" if np.isfinite(score) else "N/A\nNOT ESTIMABLE"
+        )
         axis.text(
             bar.get_x() + bar.get_width() / 2,
-            min(1.02, score + 0.035),
-            f"{score:.3f}\n{label}",
+            min(1.02, score + 0.035) if np.isfinite(score) else 0.035,
+            annotation,
             ha="center",
             va="bottom",
             fontsize=9,

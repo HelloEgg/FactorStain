@@ -130,6 +130,29 @@ def test_every_audit_probe_split_has_empty_group_intersection():
     assert metrics["group_overlap_count"] == 0
 
 
+def test_tissue_probe_stratifies_groups_and_excludes_singleton_class():
+    rng = np.random.default_rng(11)
+    group_labels = [
+        *[(f"a{index}", "common_a") for index in range(10)],
+        *[(f"b{index}", "common_b") for index in range(3)],
+        ("rare0", "singleton"),
+    ]
+    groups = np.repeat([group for group, _ in group_labels], 2)
+    labels = np.repeat([label for _, label in group_labels], 2)
+    features = rng.normal(size=(len(groups), 8)).astype(np.float32)
+    metrics, _, split = grouped_probe(
+        features, labels, groups, "tissue", "plism", 0.2, 42, 200
+    )
+    train = split[split.partition.eq("train")]
+    test = split[split.partition.eq("test")]
+    assert set(train.group_id).isdisjoint(set(test.group_id))
+    assert set(labels[train.sample_position]) == {"common_a", "common_b"}
+    assert set(labels[test.sample_position]) == {"common_a", "common_b"}
+    assert metrics["excluded_classes"] == ["singleton"]
+    assert metrics["n_excluded_samples"] == 2
+    assert set(split[split.partition.str.startswith("excluded")].group_id) == {"rare0"}
+
+
 def test_audit_statistics_and_projection_execute_on_balanced_fixture():
     rng = np.random.default_rng(7)
     metadata = pd.DataFrame(
