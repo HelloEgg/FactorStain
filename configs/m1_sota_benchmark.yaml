@@ -1,0 +1,97 @@
+milestone: m1_sota_benchmark
+seed: 42
+seeds: [42, 43, 44]
+image_size: 256
+batch_size: 16
+num_workers: 8
+model_width: 64
+
+# These paths are consumed, never regenerated, by the benchmark.
+m1_milestone: m1_factorial
+m1_training_config: configs/m1_factorial.yaml
+combination_split: outputs/m1_factorial/splits/combination_split_seed42.json
+morphology_split: outputs/m1_factorial/splits/morphology_split_seed42.json
+m1_index: outputs/m1_factorial/metadata/plism_index_with_splits.parquet
+dinov3_cache: outputs/m_minus1_domain_audit/features/plism_dinov3.npz
+dinov3_model_name: facebook/dinov3-vitb16-pretrain-lvd1689m
+dinov3_dtype: bfloat16
+
+max_eval_per_protocol: 5000
+fast_dev_eval_per_protocol: 4
+prototype_pool_limit: 128
+scanner_fit_pairs_per_mapping: 256
+lut_grid_size: 17
+bootstrap_samples: 1000
+fast_dev_bootstrap_samples: 50
+
+feature_methods:
+  featmap_ridge: 1.0
+  scangen_hidden: 96
+  scangen_alpha: 0.16
+  scangen_radius: 1.0
+  scangen_epochs: 200
+  fast_dev_scangen_epochs: 3
+  scangen_max_train_rows: 4096
+
+# Predeclared before results are observed. Raw metrics remain primary.
+composite:
+  weights:
+    dino_mmd2: 1.0
+    target_stain_ba: 1.0
+    target_scanner_ba: 1.0
+    morphology_preservation: 1.0
+    od_distance: 1.0
+    factor_isolation: 1.0
+    tissue_consistency: 1.0
+  sensitivity_weights:
+    domain_fidelity:
+      dino_mmd2: 2.0
+      target_stain_ba: 2.0
+      target_scanner_ba: 2.0
+      morphology_preservation: 1.0
+      od_distance: 1.0
+      factor_isolation: 1.0
+      tissue_consistency: 1.0
+    biology_preservation:
+      dino_mmd2: 1.0
+      target_stain_ba: 1.0
+      target_scanner_ba: 1.0
+      morphology_preservation: 2.0
+      od_distance: 1.0
+      factor_isolation: 1.0
+      tissue_consistency: 2.0
+
+# Conservative planning estimates: gpu_hours is per seed/run, peak_memory_gb is
+# per active process, and disk_gb is per completed method including planned seeds.
+# The aggregator also reports the three-seed GPU-hour total where applicable.
+compute_budget:
+  noadapt: {gpu_hours: 0.0, peak_memory_gb: 0.0, disk_gb: 0.01}
+  histogram: {gpu_hours: 0.0, peak_memory_gb: 0.0, disk_gb: 2.0}
+  reinhard: {gpu_hours: 0.0, peak_memory_gb: 0.0, disk_gb: 2.0}
+  macenko: {gpu_hours: 0.0, peak_memory_gb: 0.0, disk_gb: 2.0}
+  vahadane: {gpu_hours: 0.0, peak_memory_gb: 0.0, disk_gb: 2.0}
+  rgb_affine: {gpu_hours: 0.0, peak_memory_gb: 0.0, disk_gb: 2.0}
+  polynomial: {gpu_hours: 0.0, peak_memory_gb: 0.0, disk_gb: 2.0}
+  scanner_lut: {gpu_hours: 0.0, peak_memory_gb: 0.0, disk_gb: 2.0}
+  stainnet: {gpu_hours: 10.0, peak_memory_gb: 8.0, disk_gb: 8.0}
+  staingan: {gpu_hours: 60.0, peak_memory_gb: 14.0, disk_gb: 18.0}
+  cyclegan: {gpu_hours: 60.0, peak_memory_gb: 14.0, disk_gb: 18.0}
+  pix2pix: {gpu_hours: 30.0, peak_memory_gb: 12.0, disk_gb: 12.0}
+  histaugan: {gpu_hours: 48.0, peak_memory_gb: 16.0, disk_gb: 18.0}
+  cagan: {gpu_hours: 48.0, peak_memory_gb: 16.0, disk_gb: 18.0}
+  sastaindiff: {gpu_hours: 160.0, peak_memory_gb: 28.0, disk_gb: 45.0}
+  histofs: {gpu_hours: 12.0, peak_memory_gb: 12.0, disk_gb: 8.0}
+  scangen: {gpu_hours: 2.0, peak_memory_gb: 8.0, disk_gb: 1.0}
+  featmap: {gpu_hours: 0.1, peak_memory_gb: 4.0, disk_gb: 1.0}
+  phaet: {gpu_hours: 4.0, peak_memory_gb: 14.0, disk_gb: 3.0}
+  mascaret: {gpu_hours: 8.0, peak_memory_gb: 28.0, disk_gb: 8.0}
+  joint: {gpu_hours: 18.0, peak_memory_gb: 12.0, disk_gb: 6.0}
+  parallel: {gpu_hours: 18.0, peak_memory_gb: 12.0, disk_gb: 6.0}
+  factorstain: {gpu_hours: 18.0, peak_memory_gb: 12.0, disk_gb: 6.0}
+
+decision:
+  win_metrics: 4
+  meaningful_relative_improvement: 0.05
+  meaningful_metrics: 2
+  morphology_degradation_tolerance: 0.02
+  confidence: 0.95

@@ -1,5 +1,28 @@
 # FactorStain
 
+## M1 external SOTA benchmark
+
+The external benchmark consumes the frozen M1 split, morphology split, index, and
+evaluation episode builder. It never regenerates the split and records SHA256 hashes plus
+every train-only target reference in `outputs/m1_sota_benchmark/metadata/`.
+
+```bash
+FAST_DEV_RUN=1 bash shell/m1_sota_benchmark.sh
+METHOD=macenko bash shell/m1_sota_benchmark.sh
+METHODS=macenko,reinhard,vahadane,factorstain bash shell/m1_sota_benchmark.sh
+TIER=1 bash shell/m1_sota_benchmark.sh
+TIER=2 bash shell/m1_sota_benchmark.sh
+TIER=all bash shell/m1_sota_benchmark.sh
+```
+
+`FETCH_THIRD_PARTY=1` fetches reviewed official repositories at immutable commits but
+does not install their legacy dependencies. Neural prior work runs through isolated
+subprocess commands documented in `third_party/README.md`. Missing official code,
+weights, access, or a scientifically valid task mapping is reported explicitly and makes
+the aggregate decision invalid; it never produces a substitute score. Optional explicit
+one-method-per-GPU scheduling is enabled with `PARALLEL_GPU_METHODS=1` and
+`GPU_SLOTS=0,1,2,3`.
+
 FactorStain is a milestone-driven research implementation for factorizing pathology
 appearance into ordered H&E staining and scanner-rendering operators:
 

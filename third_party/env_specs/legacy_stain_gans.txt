@@ -1,0 +1,9 @@
+# StainNet/StainGAN/HistAuGAN/CAGAN compatibility environment sketch.
+# Consult each pinned upstream requirements file before installation.
+torch>=1.13,<2.6
+torchvision>=0.14,<0.21
+numpy<2
+Pillow>=9
+opencv-python-headless>=4.8
+scikit-image>=0.20
+pyyaml>=6

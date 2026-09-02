@@ -1,0 +1,7 @@
+# Install in a dedicated Python 3.11 environment; do not install into FactorStain.
+torch>=2.4
+torchvision>=0.19
+dominate>=2.9
+visdom>=0.2.4
+wandb>=0.17
+Pillow>=10
