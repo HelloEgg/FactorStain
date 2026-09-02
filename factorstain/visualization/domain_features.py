@@ -11,8 +11,6 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from factorstain.visualization.domain_audit import read_audit_image
-
 
 def plot_projection(
     coordinates: np.ndarray, labels: pd.Series, destination: str | Path, title: str
@@ -192,6 +190,8 @@ def plot_nearest_neighbors(
     destination: str | Path,
     title: str,
 ) -> None:
+    from factorstain.visualization.domain_audit import read_audit_image
+
     columns = 1 + max((len(neighbors) for _, neighbors in pairs), default=0)
     fig, axes = plt.subplots(
         len(pairs),

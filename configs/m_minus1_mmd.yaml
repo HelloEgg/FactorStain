@@ -1,0 +1,14 @@
+milestone: m_minus1_mmd
+source_milestone: m_minus1_domain_audit
+seed: 42
+
+mmd:
+  max_samples_per_domain: 1000
+  bandwidth_distance_pairs: 20000
+  kernel_scales: [0.5, 1.0, 2.0]
+  bootstrap_replicates: 500
+  fast_dev_bootstrap_replicates: 20
+  permutation_replicates: 200
+  pca_dimensions: 128
+  run_pca_sensitivity: false
+

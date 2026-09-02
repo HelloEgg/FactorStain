@@ -41,6 +41,17 @@ Set `RESAMPLE=1` to rebuild deterministic sample manifests, `FORCE_REEXTRACT=1` 
 replace matching feature caches, or `DINOV3_MODEL=facebook/dinov3-vitl16-pretrain-lvd1689m`
 to select the larger official backbone. Gated model access uses `HF_TOKEN`.
 
+After the audit has cached PLISM DINOv3 features, pairwise scanner/stain distribution
+gaps can be computed without feature extraction:
+
+```bash
+bash shell/m_minus1_mmd.sh
+FAST_DEV_RUN=1 bash shell/m_minus1_mmd.sh
+```
+
+The strongest comparisons are aligned-group/stain-controlled scanner MMD and
+tissue/scanner-balanced stain MMD under `outputs/m_minus1_mmd/`.
+
 ## Scientific stages
 
 | Stage | Question |
