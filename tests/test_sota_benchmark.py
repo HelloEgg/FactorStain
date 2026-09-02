@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -12,11 +14,13 @@ from factorstain.baselines.classical import ScannerTransformBank
 from factorstain.baselines.features import FEATMAPHarmonizer, ScanGenHarmonizer
 from factorstain.baselines.registry import BASELINES, resolve_methods
 from factorstain.data.splits import build_combination_split, group_train_val_test_split
+from factorstain.utils.config import load_config
 from scripts import (
     aggregate_sota_benchmark,
     prepare_sota_benchmark,
     run_sota_method,
 )
+from third_party import fetch_baselines
 
 
 def _frame(groups: int = 12) -> pd.DataFrame:
@@ -50,6 +54,28 @@ def test_registry_scientific_capabilities_and_tiers():
         "macenko",
         "reinhard",
     ]
+
+
+def test_single_seed_runtime_override_preserves_declared_protocol(
+    tmp_path, monkeypatch
+):
+    paths = tmp_path / "paths.yaml"
+    config = tmp_path / "benchmark.yaml"
+    paths.write_text(
+        f"project_root: '{tmp_path.as_posix()}'\n"
+        f"outputs_root: '{(tmp_path / 'outputs').as_posix()}'\n"
+        f"hf_home: '{(tmp_path / 'hf').as_posix()}'\n",
+        encoding="utf-8",
+    )
+    config.write_text("seed: 42\nseeds: [42, 43, 44]\n", encoding="utf-8")
+    monkeypatch.setenv("SOTA_SEEDS", "42")
+    loaded = load_config(config, paths)
+    assert loaded["seeds"] == [42, 43, 44]
+    assert loaded["run_seeds"] == [42]
+
+    monkeypatch.setenv("SOTA_SEEDS", "99")
+    with pytest.raises(ValueError, match="not declared"):
+        load_config(config, paths)
 
 
 def test_scanner_lut_uses_paired_color_response(tmp_path):
@@ -139,6 +165,45 @@ def test_macro_combination_bootstrap_clusters_groups_and_balances_cells():
     assert result["mean_difference"] == pytest.approx(0.2)
     assert result["ci_low"] > 0
     assert result["n_combinations"] == 2
+
+
+def test_fetcher_verifies_non_git_vendored_snapshot(tmp_path):
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=upstream, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "benchmark@example.invalid"],
+        cwd=upstream,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "FactorStain test"],
+        cwd=upstream,
+        check=True,
+    )
+    (upstream / "model.py").write_text("PINNED = True\n", encoding="utf-8")
+    subprocess.run(["git", "add", "model.py"], cwd=upstream, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "pinned"], cwd=upstream, check=True)
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=upstream,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    vendor_root = tmp_path / "vendor"
+    destination = vendor_root / "Method"
+    destination.mkdir(parents=True)
+    (destination / "model.py").write_text("PINNED = True\n", encoding="utf-8")
+    spec = SimpleNamespace(official_repository=str(upstream), source_commit=commit)
+    fetch_baselines._verify_vendored_snapshot(destination, spec, vendor_root)
+    assert fetch_baselines._valid_marker(destination, spec)
+
+    (destination / "model.py").write_text("PINNED = False\n", encoding="utf-8")
+    assert not fetch_baselines._valid_marker(destination, spec)
+    with pytest.raises(RuntimeError, match="does not exactly match"):
+        fetch_baselines._verify_vendored_snapshot(destination, spec, vendor_root)
 
 
 def test_fast_sota_output_contract(tmp_path, monkeypatch):

@@ -4,6 +4,11 @@
 immutable commits in `factorstain.baselines.registry`. It does not install packages or
 modify the FactorStain environment.
 
+If a repository was copied as a vendored directory without its nested `.git` folder,
+the fetcher compares every upstream-tracked file with a temporary checkout of the pinned
+commit. A matching snapshot receives `.factorstain-source.json` and is reused; a modified
+or incomplete snapshot is never overwritten and fails with recovery instructions.
+
 ```bash
 python third_party/fetch_baselines.py --tier 1
 ```

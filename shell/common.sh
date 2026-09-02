@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEFAULT_FACTORSTAIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "${FACTORSTAIN_ROOT:-$DEFAULT_FACTORSTAIN_ROOT}" && pwd)"
 cd "$ROOT"
 export PROJECT_ROOT="${PROJECT_ROOT:-$ROOT}"
 export OUTPUTS_ROOT="${OUTPUTS_ROOT:-$ROOT/outputs}"
@@ -55,4 +56,3 @@ prior_allows_progress() {
 run_ddp() {
   "$TORCHRUN_BIN" --standalone --nproc_per_node="$NPROC_PER_NODE" "$@"
 }
-

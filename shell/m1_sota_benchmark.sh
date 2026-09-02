@@ -7,6 +7,8 @@ CONFIG="${SOTA_CONFIG:-configs/m1_sota_benchmark.yaml}"
 TIER="${TIER:-1}"
 METHOD="${METHOD:-}"
 METHODS="${METHODS:-}"
+SOTA_SEEDS="${SOTA_SEEDS:-42,43,44}"
+export SOTA_SEEDS
 
 "$PYTHON_BIN" scripts/prepare_sota_benchmark.py --config "$CONFIG"
 
@@ -33,9 +35,9 @@ run_one_method() {
   local method="$1"
   local gpu="${2:-}"
   if seeded_method "$method"; then
-    local seeds=(42 43 44)
+    IFS=',' read -r -a seeds <<< "$SOTA_SEEDS"
     if [[ "${FAST_DEV_RUN:-0}" == "1" ]]; then
-      seeds=(42)
+      seeds=("${seeds[0]}")
     fi
     for seed in "${seeds[@]}"; do
       if [[ -n "$gpu" ]]; then

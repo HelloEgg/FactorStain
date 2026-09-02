@@ -1,0 +1,18 @@
+outputs_root: outputs
+
+style:
+  dpi: 300
+
+motivation:
+  domain_audit: m_minus1_domain_audit
+  mmd: m_minus1_mmd
+  output: paper_assets/motivation_sources
+
+method:
+  m1: m1_factorial
+  output: paper_assets/method_sources
+  seed: 42
+  selection_metric: morphology_preservation
+  inference_device: auto
+  methods: [joint, parallel, factorstain]
+

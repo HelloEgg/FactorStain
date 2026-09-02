@@ -1,0 +1,137 @@
+Create a publication-quality CVPR methodology figure for:
+
+“FactorStain”
+
+Use ONLY the uploaded source assets.
+Do not invent pathology samples, generated images, architectures,
+or results.
+
+The central task is:
+
+The model may observe:
+
+A×X
+A×Y
+B×X
+
+but never observe:
+
+B×Y
+
+during training.
+
+At test time it must compose the individually seen stain B and
+scanner Y to generate the unseen B×Y acquisition combination.
+
+The ordered FactorStain hypothesis mirrors the pathology
+image-formation process:
+
+Tissue morphology
+→ H&E staining
+→ WSI scanner
+→ RGB image
+
+and models:
+
+Input H&E
+→ Morphology Encoder E
+→ Stain Operator S
+→ Scanner Operator Q
+→ Counterfactual H&E
+
+with:
+
+x_hat_(s,q) = Q_q(S_s(E(x)))
+
+Use a four-panel left-to-right structure.
+
+Panel (a):
+Compositional acquisition setup
+
+Show a compact 2×2 grid:
+
+                 Scanner X    Scanner Y
+Stain A              ✓            ✓
+Stain B              ✓        HELD OUT
+
+Short note:
+
+“Factors individually seen; combination unseen.”
+
+The global 13×7 held-out matrix may appear as a small inset.
+
+Panel (b):
+FactorStain architecture
+
+Make this the central panel.
+
+Input H&E
+→ Morphology Encoder
+→ Stain Operator
+→ Scanner Operator
+→ Generated H&E
+
+Target stain token enters ONLY the Stain Operator.
+
+Target scanner token enters ONLY the Scanner Operator.
+
+Place the main equation nearby.
+
+Panel (c):
+Factorial composition
+
+Show:
+
+(A,X)
+(A,Y)
+(B,X)
+
+→ reusable acquisition factors
+→ generated (B,Y)
+
+Then visually compare:
+
+Generated B×Y
+vs
+Real held-out B×Y.
+
+Panel (d):
+Factor isolation / evaluation
+
+Scanner swap:
+scanner changes
+stain preserved
+morphology preserved
+
+Stain swap:
+stain changes
+scanner preserved
+morphology preserved
+
+If the Joint / Parallel / Ordered internal architectures are shown,
+present them neutrally as an ablation.
+
+Do NOT imply Ordered FactorStain is already superior to Parallel
+unless supplied experimental results support that conclusion.
+
+Style:
+
+professional CVPR method figure
+white background
+vector-like architecture
+actual pathology images where provided
+thin arrows
+minimal text
+consistent module styling
+panel labels (a)-(d)
+no decorative icons
+no fake pathology
+no exaggerated performance claims
+readable at full two-column width.
+
+The primary visual message should be:
+
+“Instead of treating B×Y as a new atomic domain, FactorStain
+learns stain and scanner as reusable acquisition factors and
+composes them for an unseen acquisition combination.”
+

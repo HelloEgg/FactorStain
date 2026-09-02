@@ -13,7 +13,12 @@ METHODS=macenko,reinhard,vahadane,factorstain bash shell/m1_sota_benchmark.sh
 TIER=1 bash shell/m1_sota_benchmark.sh
 TIER=2 bash shell/m1_sota_benchmark.sh
 TIER=all bash shell/m1_sota_benchmark.sh
+SOTA_SEEDS=42 TIER=all bash shell/m1_sota_benchmark.sh
 ```
+
+`SOTA_SEEDS=42` runs stochastic methods once and updates resume/accounting logic to
+expect only seed 42. Because the preregistered scientific protocol uses 42, 43, and 44,
+single-seed aggregation is explicitly diagnostic and writes `decision_valid: false`.
 
 `FETCH_THIRD_PARTY=1` fetches reviewed official repositories at immutable commits but
 does not install their legacy dependencies. Neural prior work runs through isolated

@@ -27,7 +27,9 @@ def _expand(value: Any) -> Any:
     return value
 
 
-def load_config(config_path: str | Path, paths_path: str | Path = "configs/paths.yaml") -> dict[str, Any]:
+def load_config(
+    config_path: str | Path, paths_path: str | Path = "configs/paths.yaml"
+) -> dict[str, Any]:
     """Load and merge path/milestone YAML with environment-aware root overrides."""
     with Path(paths_path).open("r", encoding="utf-8") as handle:
         paths = yaml.safe_load(handle) or {}
@@ -53,6 +55,24 @@ def load_config(config_path: str | Path, paths_path: str | Path = "configs/paths
         paths["outputs_root"] = str(Path(paths["project_root"]) / "outputs")
     os.environ.setdefault("HF_HOME", str(paths["hf_home"]))
     merged = _deep_merge({"paths": paths}, config)
+    declared_seeds = [
+        int(seed) for seed in merged.get("seeds", [merged.get("seed", 42)])
+    ]
+    seed_override = os.getenv("SOTA_SEEDS", "").strip()
+    if seed_override:
+        run_seeds = [
+            int(value.strip()) for value in seed_override.split(",") if value.strip()
+        ]
+        if not run_seeds:
+            raise ValueError("SOTA_SEEDS must contain at least one integer seed")
+        undeclared = sorted(set(run_seeds) - set(declared_seeds))
+        if undeclared:
+            raise ValueError(
+                f"SOTA_SEEDS contains seeds not declared by the config: {undeclared}"
+            )
+    else:
+        run_seeds = declared_seeds
+    merged["run_seeds"] = list(dict.fromkeys(run_seeds))
     merged["fast_dev_run"] = os.getenv("FAST_DEV_RUN", "0") == "1"
     merged["force_continue"] = os.getenv("FORCE_CONTINUE", "0") == "1"
     merged["world_size"] = int(os.getenv("WORLD_SIZE", "1"))

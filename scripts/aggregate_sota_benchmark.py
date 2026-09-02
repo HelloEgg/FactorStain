@@ -88,7 +88,11 @@ SEEDED_IMAGE_METHODS = {
 
 
 def _planned_seed_count(config: dict, method: str) -> int:
-    return len(config["seeds"]) if method in SEEDED_IMAGE_METHODS else 1
+    return (
+        len(config.get("run_seeds", config["seeds"]))
+        if method in SEEDED_IMAGE_METHODS
+        else 1
+    )
 
 
 def _resolve(config: dict, value: str) -> Path:
@@ -290,10 +294,17 @@ def _encode_paths(config: dict, paths: list[str]) -> dict[str, np.ndarray]:
     return output
 
 
-def _status_records(out: Path) -> dict[str, dict]:
+def _status_records(out: Path, run_seeds: list[int] | None = None) -> dict[str, dict]:
     grouped: dict[str, list[dict]] = {}
+    selected_seeds = set(run_seeds or [])
     for path in sorted((out / "logs").glob("method_*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            selected_seeds
+            and payload["method"] in SEEDED_IMAGE_METHODS
+            and payload.get("seed") not in selected_seeds
+        ):
+            continue
         grouped.setdefault(payload["method"], []).append(payload)
     records = {}
     for method, payloads in grouped.items():
@@ -318,14 +329,23 @@ def _status_records(out: Path) -> dict[str, dict]:
     return records
 
 
-def _generation_records(out: Path, selected: list[str]) -> pd.DataFrame:
+def _generation_records(
+    out: Path, selected: list[str], run_seeds: list[int] | None = None
+) -> pd.DataFrame:
     frames = []
+    selected_seeds = set(run_seeds or [])
     for method in selected:
         for path in sorted(
             (out / "generated" / method).glob("generation_manifest_seed*.csv")
         ):
             if path.exists() and path.stat().st_size:
                 frame = pd.read_csv(path)
+                if (
+                    selected_seeds
+                    and method in SEEDED_IMAGE_METHODS
+                    and "seed" in frame
+                ):
+                    frame = frame[frame.seed.isin(selected_seeds)]
                 if not frame.empty:
                     frames.append(frame)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
@@ -687,21 +707,11 @@ def _macro_primary(
                 "Strict?": True,
                 "External pretraining?": spec.external_pretraining,
                 "Status": statuses.get(method, {}).get("status", "NOT_RUN"),
-                "Seeds": "42,43,44"
-                if method
-                in {
-                    "stainnet",
-                    "staingan",
-                    "cyclegan",
-                    "pix2pix",
-                    "histaugan",
-                    "cagan",
-                    "sastaindiff",
-                    "joint",
-                    "parallel",
-                    "factorstain",
-                }
-                else "42",
+                "Seeds": ",".join(
+                    str(seed) for seed in config.get("run_seeds", config["seeds"])
+                )
+                if method in SEEDED_IMAGE_METHODS
+                else str(config["seed"]),
                 "GPU Hours": config.get("compute_budget", {})
                 .get(method, {})
                 .get("gpu_hours", np.nan)
@@ -828,6 +838,9 @@ def _canonical_feature_sets(
             (out / "generated" / name).glob("canonical_manifest_seed*.csv")
         ):
             manifest = pd.read_csv(manifest_path, dtype={id_column: str})
+            seed = int(manifest.seed.iloc[0])
+            if seed not in set(config.get("run_seeds", config["seeds"])):
+                continue
             mapping = dict(
                 zip(
                     manifest[id_column].astype(str),
@@ -838,7 +851,6 @@ def _canonical_feature_sets(
             if not all(value in mapping for value in required_ids):
                 continue
             paths = [mapping[value] for value in required_ids]
-            seed = int(manifest.seed.iloc[0])
             candidates.append((f"{name}_seed{seed}", name, seed, paths))
             all_paths.extend(paths)
     encoded = _encode_paths(config, all_paths) if candidates else {}
@@ -1716,8 +1728,9 @@ def main() -> None:
     config = load_config(args.config)
     out = _output(config)
     selected = resolve_methods(args.method, args.methods, args.tier)
-    statuses = _status_records(out)
-    generation = _generation_records(out, selected)
+    run_seeds = config.get("run_seeds", config["seeds"])
+    statuses = _status_records(out, run_seeds)
+    generation = _generation_records(out, selected, run_seeds)
     metrics, generated_features, dino_note = _evaluate_images(generation, config, out)
     mmd = _mmd_rows(metrics, generated_features, config, out)
     primary, per_combination = _macro_primary(metrics, mmd, selected, statuses, config)
@@ -1759,7 +1772,10 @@ def main() -> None:
         observed = payload.get("seed_statuses")
         if observed is None:
             observed = {str(payload.get("seed")): payload.get("status")}
-        return all(observed.get(str(seed)) == "COMPLETE" for seed in config["seeds"])
+        return all(
+            observed.get(str(seed)) == "COMPLETE"
+            for seed in config.get("run_seeds", config["seeds"])
+        )
 
     required_tier_one = {
         name
@@ -1771,8 +1787,12 @@ def main() -> None:
     completed_required = all_required_selected and all(
         method_complete(name) for name in required_tier_one
     )
+    full_seed_protocol = sorted(config.get("run_seeds", config["seeds"])) == sorted(
+        config["seeds"]
+    )
     decision_valid = bool(
         not config["fast_dev_run"]
+        and full_seed_protocol
         and completed_required
         and best_ours
         and best_external
@@ -1783,6 +1803,11 @@ def main() -> None:
     if config["fast_dev_run"]:
         reasons.append(
             "FAST_DEV_RUN validates plumbing only; no scientific decision is permitted."
+        )
+    if not full_seed_protocol:
+        reasons.append(
+            "SOTA_SEEDS selected a subset of the preregistered three-seed protocol; "
+            "results are diagnostic and decision_valid is false."
         )
     if not completed_required:
         reasons.append(
@@ -1907,6 +1932,8 @@ def main() -> None:
         "winning_heldout_combinations": winning_combinations,
         "reasons": reasons,
         "selected_methods": selected,
+        "declared_scientific_seeds": config["seeds"],
+        "executed_seeds": config.get("run_seeds", config["seeds"]),
         "fast_dev_run": config["fast_dev_run"],
     }
     atomic_json_dump(decision, out / "FINAL_DECISION.json")

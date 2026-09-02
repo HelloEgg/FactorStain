@@ -1,0 +1,86 @@
+Create a publication-quality CVPR motivation figure for:
+
+“FactorStain”
+
+Use ONLY the uploaded source assets and numerical results.
+Do not invent pathology images, scanner names, stain conditions,
+or metric values.
+
+The figure must communicate:
+
+1. Similar biological tissue can appear visibly different under
+   different H&E staining conditions and WSI scanners.
+
+2. Frozen DINOv3 is primarily organized by morphology/tissue,
+   rather than forming simple acquisition-domain clusters.
+
+3. Nevertheless, stain and especially scanner identity remain
+   strongly decodable from the frozen representation.
+
+4. Controlled feature-distance and MMD analyses confirm
+   systematic acquisition-induced representation shifts.
+
+5. This motivates treating stain and scanner as structured,
+   distinct acquisition factors rather than one monolithic
+   “hospital style”.
+
+Use a clean 3-panel left-to-right narrative.
+
+Panel (a):
+Same/aligned biology, different acquisition
+
+Use:
+same-tissue-across-scanners
+aligned-tissue-across-stains
+raw-domain examples
+
+Short labels:
+“Scanner variation”
+“Stain variation”
+
+Panel (b):
+Morphology-dominant but not acquisition-invariant
+
+Use:
+DINOv3 UMAP by tissue
+DINOv3 UMAP by scanner
+probe accuracy
+controlled feature distance
+
+Highlight the ACTUAL scanner-probe result supplied in the source
+asset.
+
+A suitable short callout is:
+
+“DINOv3 is morphology-dominant, but not acquisition-invariant.”
+
+Panel (c):
+Systematic domain gap
+
+Use:
+controlled scanner MMD
+balanced stain MMD
+
+Conclude with:
+
+“Stain ≠ Scanner”
+
+leading toward:
+
+“Explicit acquisition factorization”
+
+Use a professional CVPR / ICCV figure style:
+
+white background
+minimal text
+panel labels (a), (b), (c)
+thin arrows
+no decorative medical cartoons
+no fake histology
+no gradients
+no slide-style title banner
+readable at two-column width.
+
+Do not add unsupported causal claims for stain because PLISM
+stain conditions may involve serial sections.
+

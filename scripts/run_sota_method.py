@@ -504,8 +504,10 @@ def main() -> None:
     args = parser.parse_args()
     config = load_config(args.config)
     if args.seed is not None:
-        if args.seed not in config["seeds"]:
-            raise ValueError(f"Seed {args.seed} is not declared in config seeds")
+        if args.seed not in config.get("run_seeds", config["seeds"]):
+            raise ValueError(
+                f"Seed {args.seed} is not selected by SOTA_SEEDS/run_seeds"
+            )
         config["seed"] = args.seed
     out = _output(config)
     name = get_baseline(args.method).method_name
