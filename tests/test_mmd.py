@@ -64,7 +64,10 @@ def test_pairwise_matrix_is_symmetric_with_zero_diagonal():
             {"domain_a": "B", "domain_b": "C", "reported_mmd2": 0.3},
         ]
     )
-    matrix = matrix_from_pair_records(records, ["A", "B", "C"], "reported_mmd2")
+    # pandas Copy-on-Write exposes ``DataFrame.values`` as read-only, matching
+    # the behavior of the production pandas/NumPy environment.
+    with pd.option_context("mode.copy_on_write", True):
+        matrix = matrix_from_pair_records(records, ["A", "B", "C"], "reported_mmd2")
     np.testing.assert_allclose(matrix.to_numpy(), matrix.to_numpy().T)
     np.testing.assert_array_equal(np.diag(matrix), np.zeros(3))
 

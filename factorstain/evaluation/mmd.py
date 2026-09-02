@@ -476,7 +476,11 @@ def matrix_from_pair_records(
         left, right = str(row.domain_a), str(row.domain_b)
         matrix.loc[left, right] = float(row[value_column])
         matrix.loc[right, left] = float(row[value_column])
-    np.fill_diagonal(matrix.values, 0.0)
+    # ``DataFrame.values`` is a read-only view under pandas Copy-on-Write
+    # (and by default in newer pandas releases). Use pandas' scalar setter so
+    # matrix construction works independently of the backing-array policy.
+    for position in range(len(matrix)):
+        matrix.iat[position, position] = 0.0
     return matrix
 
 
