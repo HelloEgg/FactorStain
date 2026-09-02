@@ -5,6 +5,7 @@ from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import linear_sum_assignment
 
 
 def stable_seed(seed: int, *parts: object) -> int:
@@ -201,6 +202,7 @@ def controlled_scanner_indices(
             "n_used": len(matched),
             "n_aligned_groups": matched.aligned_group_id.nunique(),
             "selection": "same_aligned_group_and_stain",
+            "bootstrap_unit": "aligned_group",
         },
     )
 
@@ -244,19 +246,81 @@ def balanced_stain_indices(
     if available > max_samples:
         selected = np.sort(rng.choice(available, max_samples, replace=False))
         records = [records[int(position)] for position in selected]
-    if len(records) < 2:
-        raise ValueError(
-            f"Fewer than two tissue/scanner-balanced samples for stains {stain_a}/{stain_b}"
+
+    if len(records) >= 2:
+        return (
+            np.asarray([record[0] for record in records], dtype=int),
+            np.asarray([record[1] for record in records], dtype=int),
+            np.asarray([record[2] for record in records]),
+            {
+                "n_balanced_available": available,
+                "n_used": len(records),
+                "n_strata": len({record[2] for record in records}),
+                "selection": "exact_tissue_and_scanner_strata",
+                "bootstrap_unit": "tissue_scanner_stratum",
+                "joint_match_fraction": 1.0,
+                "tissue_match_fraction": 1.0,
+                "scanner_match_fraction": 1.0,
+                "mean_categorical_mismatch": 0.0,
+            },
         )
+
+    # Some stain pairs have no usable overlap in the joint tissue/scanner
+    # strata. Retaining all such pairs is preferable to silently dropping a
+    # stain from the audit, but the fallback must not be described as exact
+    # stratification. Find the deterministic minimum-cost bipartite matching,
+    # where a tissue or scanner mismatch each costs one.
+    candidates_a = left.feature_position.to_numpy(dtype=int)
+    candidates_b = right.feature_position.to_numpy(dtype=int)
+    if len(candidates_a) > max_samples:
+        candidates_a = np.sort(
+            rng.choice(candidates_a, size=max_samples, replace=False)
+        )
+    if len(candidates_b) > max_samples:
+        candidates_b = np.sort(
+            rng.choice(candidates_b, size=max_samples, replace=False)
+        )
+    if min(len(candidates_a), len(candidates_b)) < 2:
+        raise ValueError(
+            f"Fewer than two samples for stains {stain_a}/{stain_b}; "
+            "minimum-mismatch balancing is unavailable"
+        )
+
+    metadata_a = frame.iloc[candidates_a]
+    metadata_b = frame.iloc[candidates_b]
+    tissue_match = (
+        metadata_a.tissue_type.astype(str).to_numpy()[:, None]
+        == metadata_b.tissue_type.astype(str).to_numpy()[None, :]
+    )
+    scanner_match = (
+        metadata_a.scanner_id.astype(str).to_numpy()[:, None]
+        == metadata_b.scanner_id.astype(str).to_numpy()[None, :]
+    )
+    mismatch_cost = (~tissue_match).astype(np.int8) + (~scanner_match).astype(np.int8)
+    rows, columns = linear_sum_assignment(mismatch_cost)
+    selected_a = candidates_a[rows]
+    selected_b = candidates_b[columns]
+    paired_tissue_match = tissue_match[rows, columns]
+    paired_scanner_match = scanner_match[rows, columns]
+    pair_ids = np.asarray(
+        [f"minimum_mismatch_pair_{position:05d}" for position in range(len(rows))]
+    )
     return (
-        np.asarray([record[0] for record in records], dtype=int),
-        np.asarray([record[1] for record in records], dtype=int),
-        np.asarray([record[2] for record in records]),
+        selected_a,
+        selected_b,
+        pair_ids,
         {
             "n_balanced_available": available,
-            "n_used": len(records),
-            "n_strata": len({record[2] for record in records}),
-            "selection": "exact_tissue_and_scanner_strata",
+            "n_used": len(rows),
+            "n_strata": 0,
+            "selection": "minimum_categorical_mismatch_fallback",
+            "bootstrap_unit": "matched_categorical_pair",
+            "joint_match_fraction": float(
+                np.mean(paired_tissue_match & paired_scanner_match)
+            ),
+            "tissue_match_fraction": float(np.mean(paired_tissue_match)),
+            "scanner_match_fraction": float(np.mean(paired_scanner_match)),
+            "mean_categorical_mismatch": float(np.mean(mismatch_cost[rows, columns])),
         },
     )
 
@@ -304,6 +368,7 @@ def bootstrap_mmd2(
     seed: int,
     cluster_ids: np.ndarray | None = None,
     strata_ids: np.ndarray | None = None,
+    cluster_label: str | None = None,
 ) -> dict[str, float | int | str]:
     if replicates < 1:
         raise ValueError("Bootstrap replicates must be positive")
@@ -320,7 +385,7 @@ def bootstrap_mmd2(
         )
         weights_x = cluster_counts[:, membership].astype(np.float64)
         weights_y = weights_x.copy()
-        method = "aligned_group_cluster_bootstrap"
+        method = f"{cluster_label or 'aligned_group'}_cluster_bootstrap"
     elif strata_ids is not None:
         strata_values = np.asarray(strata_ids).astype(str)
         weights_x = np.zeros((replicates, len(left)), dtype=np.float64)

@@ -145,10 +145,12 @@ def _selection(
         )
         return left, right, None, None, info
     if mode == "stain_balanced":
-        left, right, strata, info = balanced_stain_indices(
+        left, right, balance_units, info = balanced_stain_indices(
             metadata, domain_a, domain_b, max_samples, seed
         )
-        return left, right, None, strata, info
+        if info["selection"] == "exact_tissue_and_scanner_strata":
+            return left, right, None, balance_units, info
+        return left, right, balance_units, None, info
     raise KeyError(f"Unknown MMD analysis mode {mode!r}")
 
 
@@ -206,6 +208,7 @@ def _evaluate_pairs(
                     stable_seed(pair_seed, "bootstrap"),
                     cluster_ids=clusters,
                     strata_ids=strata,
+                    cluster_label=info.get("bootstrap_unit"),
                 )
             )
         if permutation:
@@ -220,6 +223,15 @@ def _evaluate_pairs(
                 )
             )
         rows.append(row)
+        if info.get("selection") == "minimum_categorical_mismatch_fallback":
+            print(
+                f"WARNING: {domain_a}/{domain_b} has fewer than two exact "
+                "(tissue_type, scanner_id) matches; using deterministic "
+                "minimum-mismatch pairing "
+                f"(joint={info['joint_match_fraction']:.1%}, "
+                f"tissue={info['tissue_match_fraction']:.1%}, "
+                f"scanner={info['scanner_match_fraction']:.1%})."
+            )
         print(
             f"[{mode} {pair_number:>3}/{total}] {domain_a} vs {domain_b}: "
             f"MMD²={result['reported_mmd2']:.6f}, n={info['n_used']}"
@@ -376,6 +388,28 @@ def _write_report(
         - stain_marginal.reported_mmd2.to_numpy()
     )
     reduced_pairs = int((delta < 0).sum())
+    fallback_pairs = stain_balanced[
+        stain_balanced.selection.eq("minimum_categorical_mismatch_fallback")
+    ]
+    if len(fallback_pairs):
+        fallback_details = "; ".join(
+            f"{row.domain_a}↔{row.domain_b} "
+            f"(joint={row.joint_match_fraction:.1%}, "
+            f"tissue={row.tissue_match_fraction:.1%}, "
+            f"scanner={row.scanner_match_fraction:.1%})"
+            for row in fallback_pairs.itertuples()
+        )
+        fallback_text = (
+            f"Exact joint-stratum balance was unavailable for {len(fallback_pairs)} "
+            f"pair(s): {fallback_details}. These pairs use deterministic "
+            "minimum-categorical-mismatch matching and are explicitly labeled in "
+            "the detailed table."
+        )
+    else:
+        fallback_text = (
+            "Every stain pair had at least two exact joint tissue/scanner-balanced "
+            "samples; no fallback was needed."
+        )
     probe_text = (
         f"The existing group-held-out scanner probe BA is {probe_accuracy:.3f}."
         if probe_accuracy is not None
@@ -401,7 +435,7 @@ This analysis reuses `{feature_path}` without feature extraction. The primary re
 
 For each domain pair, sample sizes are equalized and capped at {config["mmd"]["max_samples_per_domain"]}. The pair-specific Gaussian bandwidth is the square root of the median non-zero squared distance from a deterministic pooled subsample. The primary kernel averages RBF kernels at σ/2, σ, and 2σ. Reported values are `max(unbiased MMD², 0)`; signed unbiased estimates and the single-σ secondary estimate remain in the detailed CSV files.
 
-Controlled scanner confidence intervals use {config["mmd"]["fast_dev_bootstrap_replicates"] if config["fast_dev_run"] else config["mmd"]["bootstrap_replicates"]} aligned-group cluster-bootstrap replicates. Balanced stain intervals bootstrap independently within exact `(tissue_type, scanner_id)` strata. Bandwidth is fixed at the pairwise median estimate during bootstrap. {permutation_text} {pca_text}
+Controlled scanner confidence intervals use {config["mmd"]["fast_dev_bootstrap_replicates"] if config["fast_dev_run"] else config["mmd"]["bootstrap_replicates"]} aligned-group cluster-bootstrap replicates. Balanced stain intervals bootstrap independently within exact `(tissue_type, scanner_id)` strata when possible; sparse fallback pairs use a coupled matched-pair bootstrap. Bandwidth is fixed at the pairwise median estimate during bootstrap. {permutation_text} {pca_text}
 
 ## Scanner
 
@@ -428,8 +462,9 @@ Scanner centroid cosine distance and controlled MMD have Spearman ρ={centroid_r
 - Balanced stain distribution: mean={balanced_summary["mean"]:.6f}, median={balanced_summary["median"]:.6f}, IQR={balanced_summary["iqr"]:.6f}.
 - Balancing changed pairwise MMD by mean {delta.mean():+.6f} and median {np.median(delta):+.6f}; {reduced_pairs}/{len(delta)} pairs decreased.
 - Marginal-vs-balanced ordering: Spearman ρ={stain_order[0]:.3f}, p={stain_order[1]:.3g}.
+- {fallback_text}
 
-Exact balancing reduces tissue/scanner composition confounding, but PLISM stain conditions may use serial sections. Serial-section morphology remains a limitation, so balanced stain MMD is not a perfectly isolated causal stain effect.
+Exact stratification, or minimum-mismatch matching where exact overlap is insufficient, reduces tissue/scanner composition confounding to the extent supported by each pair. PLISM stain conditions may also use serial sections. Residual composition mismatch and serial-section morphology therefore remain limitations, so balanced stain MMD is not a perfectly isolated causal stain effect.
 
 ## Overall interpretation
 
@@ -664,6 +699,22 @@ def main() -> None:
         footer,
     )
 
+    fallback_columns = [
+        "domain_a",
+        "domain_b",
+        "n_balanced_available",
+        "n_used",
+        "joint_match_fraction",
+        "tissue_match_fraction",
+        "scanner_match_fraction",
+        "mean_categorical_mismatch",
+        "selection",
+        "bootstrap_method",
+    ]
+    stain_balance_fallbacks = stain_balanced.loc[
+        stain_balanced.selection.eq("minimum_categorical_mismatch_fallback"),
+        fallback_columns,
+    ].to_dict(orient="records")
     metrics = {
         "milestone": config["milestone"],
         "audit_valid": not config["fast_dev_run"],
@@ -702,9 +753,10 @@ def main() -> None:
             },
         },
         "existing_scanner_probe_balanced_accuracy": probe_accuracy,
+        "stain_balance_fallback_pairs": stain_balance_fallbacks,
         "ci_matrix_semantics": {
             "scanner": "controlled scanner aligned-group cluster bootstrap",
-            "stain": "tissue/scanner-balanced within-stratum bootstrap",
+            "stain": "exact tissue/scanner within-stratum bootstrap when possible; sparse pairs use minimum-mismatch matched-pair bootstrap",
         },
         "permutation_enabled": config["run_mmd_permutation"],
         "pca_sensitivity": pca_sensitivity,
@@ -714,7 +766,9 @@ def main() -> None:
         ),
         "caveats": [
             "Controlled scanner MMD fixes aligned_group_id and stain_id and is stronger than marginal scanner MMD.",
-            "Balanced stain MMD matches tissue_type and scanner_id, but serial-section morphology remains confounded.",
+            "Balanced stain MMD uses exact tissue_type/scanner_id strata when available and explicitly recorded minimum-mismatch pairing otherwise.",
+            "Minimum-mismatch stain fallback pairs retain residual composition confounding; inspect stain_balance_fallback_pairs and the detailed CSV.",
+            "Serial-section morphology remains confounded in stain comparisons.",
             "Scanner and stain pair distributions involve different domain sets and are not directly causal rankings.",
         ],
     }

@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pandas as pd
 
@@ -93,6 +95,49 @@ def test_controlled_scanner_and_balanced_stain_selection():
     assert len(left) == len(right) == 12
     assert info["n_strata"] == 4
     assert len(strata) == 12
+    assert info["selection"] == "exact_tissue_and_scanner_strata"
+    assert info["joint_match_fraction"] == 1.0
+
+
+def test_sparse_stain_pair_uses_audited_minimum_mismatch_fallback():
+    from scripts.run_mmd_analysis import _selection
+
+    metadata = pd.DataFrame(
+        [
+            {"stain_id": "GIV", "tissue_type": "t1", "scanner_id": "q1"},
+            {"stain_id": "GIV", "tissue_type": "t1", "scanner_id": "q1"},
+            {"stain_id": "GIV", "tissue_type": "t2", "scanner_id": "q2"},
+            {"stain_id": "LM", "tissue_type": "t1", "scanner_id": "q2"},
+            {"stain_id": "LM", "tissue_type": "t2", "scanner_id": "q1"},
+            {"stain_id": "LM", "tissue_type": "t2", "scanner_id": "q1"},
+        ]
+    )
+    left, right, clusters, strata, info = _selection(
+        "stain_balanced", metadata, "GIV", "LM", max_samples=100, seed=42
+    )
+    assert len(left) == len(right) == len(clusters) == 3
+    assert strata is None
+    assert len(np.unique(clusters)) == 3
+    assert info["selection"] == "minimum_categorical_mismatch_fallback"
+    assert info["joint_match_fraction"] == 0.0
+    assert info["mean_categorical_mismatch"] == 1.0
+
+    rng = np.random.default_rng(42)
+    features = rng.normal(size=(len(metadata), 6)).astype(np.float32)
+    result = compute_mmd2(features[left], features[right], seed=42)
+    interval = bootstrap_mmd2(
+        features[left],
+        features[right],
+        result["sigma"],
+        (0.5, 1.0, 2.0),
+        replicates=10,
+        seed=42,
+        cluster_ids=clusters,
+        cluster_label=info["bootstrap_unit"],
+    )
+    assert interval["bootstrap_method"] == (
+        "matched_categorical_pair_cluster_bootstrap"
+    )
 
 
 def test_mmd_runner_reuses_cache_and_writes_requested_outputs(tmp_path, monkeypatch):
@@ -113,7 +158,10 @@ def test_mmd_runner_reuses_cache_and_writes_requested_outputs(tmp_path, monkeypa
                     {
                         "sample_id": sample_id,
                         "aligned_group_id": f"g{group}",
-                        "tissue_type": f"t{group % 2}",
+                        # Disjoint synthetic tissue labels force the runner's
+                        # sparse stain-pair fallback without weakening scanner
+                        # aligned-group matches.
+                        "tissue_type": f"{stain}-t{group % 2}",
                         "stain_id": stain,
                         "scanner_id": scanner,
                     }
@@ -164,3 +212,10 @@ def test_mmd_runner_reuses_cache_and_writes_requested_outputs(tmp_path, monkeypa
     assert all(path.exists() and path.stat().st_size > 0 for path in expected)
     scanner_matrix = pd.read_csv(result / "tables" / "scanner_mmd.csv", index_col=0)
     np.testing.assert_array_equal(np.diag(scanner_matrix), np.zeros(3))
+    metrics = json.loads((result / "metrics.json").read_text(encoding="utf-8"))
+    assert len(metrics["stain_balance_fallback_pairs"]) == 3
+    details = pd.read_csv(result / "tables" / "stain_mmd_balanced_details.csv")
+    assert set(details.selection) == {"minimum_categorical_mismatch_fallback"}
+    assert set(details.bootstrap_method) == {
+        "matched_categorical_pair_cluster_bootstrap"
+    }
