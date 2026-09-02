@@ -52,6 +52,22 @@ FAST_DEV_RUN=1 bash shell/m_minus1_mmd.sh
 The strongest comparisons are aligned-group/stain-controlled scanner MMD and
 tissue/scanner-balanced stain MMD under `outputs/m_minus1_mmd/`.
 
+The M1 compositional pilot reuses the M-1 PLISM index and DINOv3 cache, trains
+the joint, parallel, and ordered FactorStain generators on one identical global
+cell/morphology split, and evaluates both held-out-combination protocols plus
+controlled same-stain scanner transfer:
+
+```bash
+FAST_DEV_RUN=1 bash shell/m1_factorial.sh
+bash shell/m1_factorial.sh
+```
+
+Development mode creates the complete output contract but always writes
+`"decision_valid": false`. The primary review artifact is
+`outputs/m1_factorial/figures/SUMMARY_DASHBOARD.png`; exact splits, episode
+coverage, raw metrics, held-out-domain DINOv3 MMD², bootstrap comparisons, and
+the decision rationale are retained beside it.
+
 ## Scientific stages
 
 | Stage | Question |

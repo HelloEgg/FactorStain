@@ -8,6 +8,8 @@ from typing import Any
 
 import numpy as np
 import torch
+from torch import nn
+from torch.nn import functional as F
 
 
 def resolve_dtype(name: str, device: torch.device | str) -> torch.dtype:
@@ -62,6 +64,63 @@ def load_dinov3(
         ) from exc
     model.eval().requires_grad_(False).to(device)
     return processor, model, dtype
+
+
+class FrozenDINOv3Encoder(nn.Module):
+    """Differentiable-to-image, frozen-parameter DINOv3 feature wrapper."""
+
+    def __init__(self, processor: Any, model: nn.Module) -> None:
+        super().__init__()
+        self.processor = processor
+        self.model = model.eval().requires_grad_(False)
+
+    def _size(self) -> tuple[int, int]:
+        value = getattr(self.model.config, "image_size", None)
+        if isinstance(value, int):
+            return value, value
+        if isinstance(value, (tuple, list)) and len(value) >= 2:
+            return int(value[-2]), int(value[-1])
+        size = getattr(self.processor, "size", 224)
+        if isinstance(size, dict):
+            height = size.get("height", size.get("shortest_edge", 224))
+            width = size.get("width", size.get("shortest_edge", 224))
+            return int(height), int(width)
+        return int(size), int(size)
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        values = F.interpolate(
+            images.float(),
+            size=self._size(),
+            mode="bicubic",
+            align_corners=False,
+            antialias=True,
+        )
+        mean = torch.as_tensor(
+            getattr(self.processor, "image_mean", (0.485, 0.456, 0.406)),
+            device=values.device,
+            dtype=values.dtype,
+        )[None, :, None, None]
+        std = torch.as_tensor(
+            getattr(self.processor, "image_std", (0.229, 0.224, 0.225)),
+            device=values.device,
+            dtype=values.dtype,
+        )[None, :, None, None]
+        try:
+            model_dtype = next(self.model.parameters()).dtype
+        except StopIteration:
+            model_dtype = values.dtype
+        outputs = self.model(pixel_values=((values - mean) / std).to(model_dtype))
+        features, _ = select_image_embedding(outputs, self.model.config)
+        return features.float()
+
+
+def load_frozen_dinov3_encoder(
+    model_name: str,
+    device: torch.device | str,
+    dtype_name: str = "bfloat16",
+) -> FrozenDINOv3Encoder:
+    processor, model, _ = load_dinov3(model_name, device, dtype_name)
+    return FrozenDINOv3Encoder(processor, model).to(device)
 
 
 def select_image_embedding(outputs: Any, model_config: Any) -> tuple[torch.Tensor, str]:
