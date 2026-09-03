@@ -312,7 +312,8 @@ def _limit(frame: pd.DataFrame, limit: int, seed: int) -> pd.DataFrame:
     keys = ids.map(lambda value: hashlib.sha256(f"{seed}:{value}".encode()).hexdigest())
     return (
         frame.assign(_selection_key=keys)
-        .nsmallest(limit, "_selection_key")
+        .sort_values("_selection_key", kind="stable")
+        .head(limit)
         .drop(columns="_selection_key")
         .reset_index(drop=True)
     )

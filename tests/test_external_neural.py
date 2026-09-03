@@ -154,6 +154,24 @@ def test_external_checkpoint_path_is_fit_fingerprint_scoped(tmp_path):
     assert "aaaaaaaaaaaa" in first_path.name
 
 
+def test_external_limit_sorts_string_hashes_deterministically():
+    frame = pd.DataFrame(
+        {
+            "sample_id": [f"sample-{number}" for number in range(10)],
+            "value": range(10),
+        }
+    )
+    expected = sorted(
+        frame.sample_id,
+        key=lambda value: hashlib.sha256(f"42:{value}".encode()).hexdigest(),
+    )[:3]
+    first = official_neural._limit(frame, limit=3, seed=42)
+    second = official_neural._limit(frame, limit=3, seed=42)
+    assert first.sample_id.tolist() == expected
+    pd.testing.assert_frame_equal(first, second)
+    assert "_selection_key" not in first
+
+
 def test_sastaindiff_train_only_stain_augmentation(tmp_path):
     y, x = np.mgrid[:32, :32]
     image = (
