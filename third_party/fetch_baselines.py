@@ -131,6 +131,28 @@ def fetch(method: str, root: Path) -> None:
     spec = BASELINES[method]
     destination = root / DESTINATIONS[method]
     if destination.exists():
+        if destination.is_dir() and not any(destination.iterdir()):
+            # A fresh checkout can materialize a gitlink as an empty directory.
+            # ``git clone`` accepts an existing empty destination, so initialize it
+            # directly instead of requiring the user to remove it first.
+            _clone_pinned(spec, destination)
+            observed = _git("rev-parse", "HEAD", cwd=destination)
+            if observed != spec.source_commit:
+                raise RuntimeError(
+                    f"Commit verification failed for {method}: {observed}"
+                )
+            files = _tracked_files(destination)
+            digest = _snapshot_digest(destination, files)
+            if digest is None:
+                raise RuntimeError(
+                    f"Pinned checkout is missing tracked files: {destination}"
+                )
+            _write_marker(destination, spec, files, digest)
+            print(
+                f"{method}: initialized empty gitlink from "
+                f"{spec.official_repository}@{observed}"
+            )
+            return
         if not (destination / ".git").exists():
             _verify_vendored_snapshot(destination, spec, root)
             return

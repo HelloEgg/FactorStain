@@ -27,6 +27,22 @@ the official checkout, record their environment and upstream commit, and must ne
 the evaluation manifest during fitting. A missing command or output fails closed and is
 reported as `UNAVAILABLE`; FactorStain never substitutes another network.
 
+The command interface is a contract, not an installer: runnable adapters for StainNet,
+StainGAN, CycleGAN, Pix2Pix, HistAuGAN, CAGAN, and SAStainDiff are not currently bundled.
+Cloning the official repositories (including with `FETCH_THIRD_PARTY=1`) therefore does
+not make those methods executable by itself. A full score for one of these methods is
+valid only after its official training/inference code has been adapted to the request
+contract above and the corresponding environment variable has been set.
+
+The source repositories are registered as submodules. On a fresh checkout either run:
+
+```bash
+git submodule update --init --recursive
+```
+
+or use `fetch_baselines.py`. The fetcher also initializes pre-existing empty gitlink
+directories, so manually deleting them is not required.
+
 Environment sketches live in `env_specs/`. Upstream requirements remain authoritative.
 Phaet and Mascaret require individual acceptance of Waiv's gated non-commercial terms;
 their exact Hugging Face revision must be recorded after authenticated download.

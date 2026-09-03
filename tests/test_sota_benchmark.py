@@ -206,6 +206,46 @@ def test_fetcher_verifies_non_git_vendored_snapshot(tmp_path):
         fetch_baselines._verify_vendored_snapshot(destination, spec, vendor_root)
 
 
+def test_fetcher_initializes_existing_empty_gitlink(tmp_path, monkeypatch):
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=upstream, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "benchmark@example.invalid"],
+        cwd=upstream,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "FactorStain test"],
+        cwd=upstream,
+        check=True,
+    )
+    (upstream / "model.py").write_text("PINNED = True\n", encoding="utf-8")
+    subprocess.run(["git", "add", "model.py"], cwd=upstream, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "pinned"], cwd=upstream, check=True)
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=upstream,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    vendor_root = tmp_path / "vendor"
+    destination = vendor_root / "Method"
+    destination.mkdir(parents=True)
+    spec = SimpleNamespace(official_repository=str(upstream), source_commit=commit)
+    monkeypatch.setitem(fetch_baselines.DESTINATIONS, "fake", destination.name)
+    monkeypatch.setitem(
+        sys.modules["factorstain.baselines.registry"].BASELINES, "fake", spec
+    )
+
+    fetch_baselines.fetch("fake", vendor_root)
+
+    assert (destination / "model.py").read_text(encoding="utf-8") == "PINNED = True\n"
+    assert fetch_baselines._valid_marker(destination, spec)
+
+
 def test_fast_sota_output_contract(tmp_path, monkeypatch):
     monkeypatch.setattr(
         pd.DataFrame,

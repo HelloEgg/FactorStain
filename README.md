@@ -28,6 +28,13 @@ the aggregate decision invalid; it never produces a substitute score. Optional e
 one-method-per-GPU scheduling is enabled with `PARALLEL_GPU_METHODS=1` and
 `GPU_SLOTS=0,1,2,3`.
 
+Important: fetching a repository is not sufficient to run StainNet, StainGAN, CycleGAN,
+Pix2Pix, HistAuGAN, CAGAN, or SAStainDiff. This repository currently defines the
+isolation/request contract but does not bundle runnable training/inference adapters for
+those seven upstream projects. Unless a compatible adapter command is supplied through
+`FACTORSTAIN_<METHOD>_COMMAND`, each is intentionally reported as `UNAVAILABLE`; the
+console now prints the exact reason and status-record path.
+
 FactorStain is a milestone-driven research implementation for factorizing pathology
 appearance into ordered H&E staining and scanner-rendering operators:
 

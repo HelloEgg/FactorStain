@@ -553,6 +553,9 @@ def main() -> None:
     payload["wall_seconds"] = time.monotonic() - started
     atomic_json_dump(payload, status_path)
     print(f"{name}: {payload['status']} ({payload['wall_seconds']:.1f}s)")
+    if payload["status"] != "COMPLETE" and payload.get("reason"):
+        print(f"  Reason: {payload['reason']}")
+        print(f"  Status record: {status_path}")
 
 
 if __name__ == "__main__":
