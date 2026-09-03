@@ -389,7 +389,7 @@ def test_fast_sota_output_contract(tmp_path, monkeypatch):
         ],
     )
     aggregate_sota_benchmark.main()
-    out = outputs / "m1_sota_benchmark"
+    out = outputs / "m1_sota_benchmark_fast_dev"
     expected = [
         "REPORT.md",
         "FINAL_DECISION.json",

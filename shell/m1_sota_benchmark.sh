@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/common.sh"
-acquire_lock m1_sota_benchmark
-start_log m1_sota_benchmark
+benchmark_run=m1_sota_benchmark
+if [[ "${FAST_DEV_RUN:-0}" == "1" ]]; then
+  benchmark_run=m1_sota_benchmark_fast_dev
+fi
+acquire_lock "$benchmark_run"
+start_log "$benchmark_run"
 
 CONFIG="${SOTA_CONFIG:-configs/m1_sota_benchmark.yaml}"
 TIER="${TIER:-1}"

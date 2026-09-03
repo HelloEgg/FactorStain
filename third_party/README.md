@@ -13,26 +13,39 @@ or incomplete snapshot is never overwritten and fails with recovery instructions
 python third_party/fetch_baselines.py --tier 1
 ```
 
-Legacy neural baselines run through an isolated command configured as
-`FACTORSTAIN_<METHOD>_COMMAND`. The command receives one of:
+Bundled neural adapters run through the same subprocess boundary as custom isolated
+environments. The default command is `scripts/run_official_baseline_adapter.py`; it may
+be overridden with `FACTORSTAIN_<METHOD>_COMMAND`. A command receives one of:
 
 ```text
 <command> fit   --request /absolute/path/to/fit_request.json
 <command> infer --request /absolute/path/to/request.json
+<command> serve --request /absolute/path/to/serve_request.json
 ```
 
 The fit request points to the strict training manifest and reference policy. The infer
-request points to one source PNG and declares the output PNG. Adapter commands must use
-the official checkout, record their environment and upstream commit, and must never read
-the evaluation manifest during fitting. A missing command or output fails closed and is
-reported as `UNAVAILABLE`; FactorStain never substitutes another network.
+request points to one source PNG and declares the output PNG. `serve` uses JSON-lines on
+stdin/stdout so a target model remains resident during evaluation. Adapter commands use
+the pinned official checkout, record their environment and upstream commit, and never
+read the evaluation manifest during fitting. A missing command or output fails closed;
+FactorStain never substitutes another network.
 
-The command interface is a contract, not an installer: runnable adapters for StainNet,
-StainGAN, CycleGAN, Pix2Pix, HistAuGAN, CAGAN, and SAStainDiff are not currently bundled.
-Cloning the official repositories (including with `FETCH_THIRD_PARTY=1`) therefore does
-not make those methods executable by itself. A full score for one of these methods is
-valid only after its official training/inference code has been adapted to the request
-contract above and the corresponding environment variable has been set.
+Run the source/runtime preflight with:
+
+```bash
+bash shell/setup_external_baselines.sh
+```
+
+This refreshes the editable FactorStain environment so `torchvision` and the other
+declared runtime dependencies are present. Set `SKIP_PYTHON_SETUP=1` only when an
+existing `.venv` has already been provisioned externally.
+
+Training policy is frozen in `configs/external_neural_baselines.yaml`. Every stain target
+uses the train-only prototype's scanner as its declared output scanner: StainNet uses
+aligned-group pairs; StainGAN and CycleGAN use unpaired target banks; Pix2Pix uses
+registered same-group/same-stain scanner pairs; HistAuGAN uses one multidomain model;
+CAGAN and SAStainDiff use target banks. Stain outputs are then composed with the
+training-only ScannerLUT for strict Track C.
 
 The source repositories are registered as submodules. On a fresh checkout either run:
 

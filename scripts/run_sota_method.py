@@ -14,6 +14,7 @@ import pandas as pd
 from PIL import Image
 
 from factorstain.baselines.base import FitContext, MethodUnavailable
+from factorstain.baselines.benchmark import benchmark_output
 from factorstain.baselines.classical import (
     ClassicalStainMethod,
     NoAdaptMethod,
@@ -57,6 +58,7 @@ EXTERNAL_STAIN = {
     "cagan",
     "sastaindiff",
 }
+EXTERNAL_NEURAL = EXTERNAL_STAIN | {"pix2pix"}
 
 
 def _resolve(config: dict, value: str) -> Path:
@@ -73,7 +75,7 @@ def _resolve(config: dict, value: str) -> Path:
 
 
 def _output(config: dict) -> Path:
-    return Path(config["paths"]["outputs_root"]) / config["milestone"]
+    return benchmark_output(config)
 
 
 def _fit_context(config: dict, out: Path) -> FitContext:
@@ -268,13 +270,24 @@ def _run_images(name: str, config: dict, out: Path) -> dict:
     manifest = pd.read_parquet(out / "metadata" / "evaluation_manifest.parquet")
     tracks = IMAGE_TRACKS[name]
     manifest = manifest[manifest.track.isin(tracks)].copy()
+    if isinstance(method, OfficialSubprocessMethod):
+        # The persistent adapter keeps one target model resident. Grouping by target
+        # avoids repeatedly loading large target-bank checkpoints and does not change
+        # the frozen evaluation cohort or any metric.
+        target_key = "target_scanner_id" if name == "pix2pix" else "target_stain_id"
+        manifest = manifest.sort_values(
+            [target_key, "track", "episode_id"], kind="stable"
+        )
     rows, errors = [], []
+    generation_run = f"seed{config['seed']}"
+    if isinstance(method, OfficialSubprocessMethod):
+        generation_run += f"_{method.fit_fingerprint[:12]}"
     for episode in manifest.itertuples(index=False):
         destination = (
             out
             / "generated"
             / name
-            / f"seed{config['seed']}"
+            / generation_run
             / str(episode.track)
             / f"{episode.episode_id}.png"
         )
@@ -383,6 +396,8 @@ def _run_images(name: str, config: dict, out: Path) -> dict:
         canonical_rows, canonical_target = _canonicalize_feature_cohort(
             name, method, context, config, out
         )
+    if isinstance(method, OfficialSubprocessMethod):
+        method.close()
     return {
         "status": "COMPLETE"
         if rows and not errors
@@ -397,6 +412,7 @@ def _run_images(name: str, config: dict, out: Path) -> dict:
         "result_manifest": str(result_path),
         "track_d_canonical_rows": canonical_rows,
         "track_d_canonical_target_train_cell": canonical_target,
+        "fit_fingerprint": getattr(method, "fit_fingerprint", None),
     }
 
 
@@ -514,7 +530,11 @@ def main() -> None:
     status_path = out / "logs" / f"method_{name}_seed{config['seed']}.json"
     if status_path.exists():
         prior = json.loads(status_path.read_text(encoding="utf-8"))
-        if prior.get("status") == "COMPLETE" and not os.getenv("FORCE_RERUN_METHOD"):
+        if (
+            prior.get("status") == "COMPLETE"
+            and name not in EXTERNAL_NEURAL
+            and not os.getenv("FORCE_RERUN_METHOD")
+        ):
             print(f"{name}: already complete; resume skipped")
             return
     started = time.monotonic()

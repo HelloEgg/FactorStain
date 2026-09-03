@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
 import os
 import shlex
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+from typing import IO
 
 import numpy as np
 import pandas as pd
@@ -16,12 +20,11 @@ from .classical import ScannerTransformBank, as_uint8_rgb
 
 
 class OfficialSubprocessMethod(AcquisitionMethod):
-    """Dependency-isolated adapter for an official neural image implementation.
+    """Subprocess adapter for a pinned official neural image implementation.
 
-    The official environment command is deliberately explicit. It receives a JSON
-    request and must produce the declared output. This prevents legacy dependency
-    pins from mutating FactorStain's environment and makes the exact command part of
-    provenance. No fallback model is substituted when the command is unavailable.
+    The command receives a JSON request and must produce the declared output. The
+    bundled command uses FactorStain's environment; a custom isolated environment may
+    be supplied explicitly. No fallback model is substituted on failure.
     """
 
     def __init__(
@@ -33,9 +36,22 @@ class OfficialSubprocessMethod(AcquisitionMethod):
     ) -> None:
         self.method_name = method_name
         env_name = f"FACTORSTAIN_{method_name.upper()}_COMMAND"
-        self.command = command or os.getenv(env_name, "")
+        configured = command or os.getenv(env_name, "")
+        bundled = (
+            Path(__file__).resolve().parents[2]
+            / "scripts"
+            / "run_official_baseline_adapter.py"
+        )
+        self.command = configured or shlex.join(
+            [sys.executable, str(bundled), "--method", method_name]
+        )
+        self.use_persistent_server = (
+            not configured or os.getenv("FACTORSTAIN_ADAPTER_PERSISTENT", "0") == "1"
+        )
         self.append_scanner_lut = append_scanner_lut
         self.scanner_bank = ScannerTransformBank("lut", grid_size)
+        self._server: subprocess.Popen[str] | None = None
+        self._server_log: IO[str] | None = None
 
     def _run(self, mode: str, request: Path) -> None:
         if not self.command:
@@ -53,8 +69,99 @@ class OfficialSubprocessMethod(AcquisitionMethod):
         if completed.returncode:
             raise MethodUnavailable(
                 f"{self.method_name} official subprocess failed ({completed.returncode}): "
-                f"{completed.stderr[-2000:]}"
+                f"{(completed.stderr or completed.stdout)[-4000:]}"
             )
+
+    def _start_server(self) -> None:
+        if self._server is not None:
+            return
+        request_path = self.checkpoint_dir / "serve_request.json"
+        request_path.write_text(
+            json.dumps(
+                {
+                    "method": self.method_name,
+                    "checkpoint_dir": str(self.checkpoint_dir),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        log_path = self.checkpoint_dir / "inference_server.log"
+        self._server_log = log_path.open("a", encoding="utf-8")
+        self._server = subprocess.Popen(
+            [
+                *shlex.split(self.command),
+                "serve",
+                "--request",
+                str(request_path),
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=self._server_log,
+            text=True,
+            bufsize=1,
+        )
+        assert self._server.stdout is not None
+        ready = self._server.stdout.readline()
+        try:
+            response = json.loads(ready)
+        except json.JSONDecodeError as exc:
+            self.close()
+            raise MethodUnavailable(
+                f"{self.method_name} inference server did not start; see {log_path}"
+            ) from exc
+        if response.get("status") != "READY":
+            self.close()
+            raise MethodUnavailable(
+                f"{self.method_name} inference server failed: {response}"
+            )
+
+    def _infer(self, request: dict, request_path: Path) -> None:
+        if not self.use_persistent_server:
+            self._run("infer", request_path)
+            return
+        self._start_server()
+        assert self._server is not None
+        assert self._server.stdin is not None and self._server.stdout is not None
+        self._server.stdin.write(json.dumps(request) + "\n")
+        self._server.stdin.flush()
+        line = self._server.stdout.readline()
+        if not line:
+            return_code = self._server.poll()
+            self.close()
+            raise MethodUnavailable(
+                f"{self.method_name} inference server exited unexpectedly "
+                f"with status {return_code}"
+            )
+        response = json.loads(line)
+        if response.get("status") != "COMPLETE":
+            raise MethodUnavailable(
+                f"{self.method_name} inference failed: "
+                f"{response.get('error_type')}: {response.get('error')}"
+            )
+
+    def close(self) -> None:
+        server = getattr(self, "_server", None)
+        self._server = None
+        if server is not None:
+            try:
+                if server.stdin is not None:
+                    server.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+            try:
+                server.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                server.terminate()
+                try:
+                    server.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+                    server.wait(timeout=10)
+        server_log = getattr(self, "_server_log", None)
+        if server_log is not None:
+            server_log.close()
+            self._server_log = None
 
     def fit(self, context: FitContext, val_data: pd.DataFrame | None = None) -> None:
         self.context = context
@@ -89,6 +196,16 @@ class OfficialSubprocessMethod(AcquisitionMethod):
         request_path = self.checkpoint_dir / "fit_request.json"
         request_path.write_text(json.dumps(request, indent=2), encoding="utf-8")
         self._run("fit", request_path)
+        state_path = self.checkpoint_dir / "adapter_state.json"
+        if state_path.is_file():
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.fit_fingerprint = str(state.get("fit_fingerprint", ""))
+        else:
+            self.fit_fingerprint = ""
+        if not self.fit_fingerprint:
+            self.fit_fingerprint = hashlib.sha256(
+                request_path.read_bytes() + self.command.encode()
+            ).hexdigest()
         if self.append_scanner_lut:
             self.scanner_bank.fit(
                 context.scanner_pairs, context.image_size, context.seed
@@ -124,7 +241,7 @@ class OfficialSubprocessMethod(AcquisitionMethod):
             }
             request_path = temporary / "request.json"
             request_path.write_text(json.dumps(request, indent=2), encoding="utf-8")
-            self._run("infer", request_path)
+            self._infer(request, request_path)
             if not output_path.exists():
                 raise MethodUnavailable(
                     f"{self.method_name} adapter did not create {output_path}"
@@ -145,3 +262,7 @@ class OfficialSubprocessMethod(AcquisitionMethod):
 
     def supports_strict_composition(self) -> bool:
         return self.append_scanner_lut
+
+    def __del__(self) -> None:
+        with contextlib.suppress(Exception):
+            self.close()

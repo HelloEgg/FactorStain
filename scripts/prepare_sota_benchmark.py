@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
+from factorstain.baselines.benchmark import benchmark_output_config
 from factorstain.baselines.registry import BASELINES
 from factorstain.evaluation.renderer import build_evaluation_pairs
 from factorstain.utils.config import load_config
@@ -360,7 +361,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/m1_sota_benchmark.yaml")
     args = parser.parse_args()
-    config = load_config(args.config)
+    config = benchmark_output_config(load_config(args.config))
     out = prepare_output(config)
     for child in ("generated", "metadata", "tables", "figures", "checkpoints", "logs"):
         (out / child).mkdir(parents=True, exist_ok=True)

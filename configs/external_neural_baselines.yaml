@@ -1,0 +1,113 @@
+schema_version: 1
+
+# Frozen adapter protocol for the external neural rows in m1_sota_benchmark.
+# Every fit consumes only metadata/training_manifest.parquet, the separately
+# declared validation manifest, scanner_fit_pairs.parquet, and reference_policy.json.
+common:
+  require_cuda: true
+  deterministic: true
+  num_workers: 4
+  max_train_images_per_domain: 12000
+  max_validation_images_per_domain: 2000
+
+stainnet:
+  protocol: target_stain_reference_scanner_bank_paired_aligned_group
+  epochs: 300
+  batch_size: 10
+  learning_rate: 0.01
+  channels: 32
+  layers: 3
+  steps_per_epoch: 0
+
+staingan:
+  protocol: target_stain_reference_scanner_bank_unpaired_pooled_sources
+  epochs_constant: 100
+  epochs_decay: 100
+  batch_size: 4
+  learning_rate: 0.0002
+  beta1: 0.5
+  lambda_cycle: 10.0
+  lambda_identity: 5.0
+  replay_size: 50
+  generator: resnet_9blocks
+  steps_per_epoch: 0
+
+cyclegan:
+  protocol: target_stain_reference_scanner_bank_unpaired_pooled_sources
+  epochs_constant: 100
+  epochs_decay: 100
+  batch_size: 1
+  learning_rate: 0.0002
+  beta1: 0.5
+  lambda_cycle: 10.0
+  lambda_identity: 5.0
+  replay_size: 50
+  generator: resnet_9blocks
+  steps_per_epoch: 0
+
+pix2pix:
+  protocol: target_scanner_bank_registered_same_group_same_stain_pairs
+  epochs_constant: 100
+  epochs_decay: 100
+  batch_size: 1
+  learning_rate: 0.0002
+  beta1: 0.5
+  lambda_l1: 100.0
+  generator: unet_256
+  steps_per_epoch: 0
+
+histaugan:
+  protocol: multidomain_train_stain_reference_scanners_prototype_style_inference
+  epochs: 1200
+  batch_size: 2
+  learning_rate: 0.0001
+  d_iter: 3
+  lambda_rec: 10.0
+  lambda_cls: 1.0
+  lambda_cls_G: 5.0
+  steps_per_epoch: 0
+
+cagan:
+  protocol: target_stain_reference_scanner_bank_official_two_decoder
+  epochs: 100
+  batch_size: 9
+  learning_rate_g: 0.0001
+  learning_rate_d: 0.0003
+  lr_decay_rate: 0.8
+  lambda_l1: 10.0
+  lambda_content: 0.75
+  steps_per_epoch: 1
+
+sastaindiff:
+  protocol: target_stain_reference_scanner_bank_train_only_stain_augmentation
+  train_steps: 100000
+  batch_size: 2
+  microbatch: -1
+  learning_rate: 0.0001
+  ema_rate: 0.9999
+  diffusion_steps: 1000
+  inference_timestep: 900
+  inference_respacing: ddim5
+  model_channels: 128
+  num_res_blocks: 3
+  attention_resolutions: 32,16,8
+  stain_database_limit: 4096
+  nearest_neighbours: 5
+  sigma_perturb: 0.1
+  sigma1: 0.7
+  sigma2: 0.7
+  shift_value: 25
+  color_augmentation_probability: 0.8
+  color_attempts: 1000
+  stain_attempts: 1000000
+  gaussian_blur: true
+
+fast_dev:
+  epochs: 1
+  train_steps: 1
+  steps_per_epoch: 1
+  batch_size: 2
+  max_train_images_per_domain: 8
+  max_validation_images_per_domain: 4
+  sastaindiff_model_channels: 32
+  sastaindiff_num_res_blocks: 1

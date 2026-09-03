@@ -19,6 +19,7 @@ from sklearn.metrics import balanced_accuracy_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
+from factorstain.baselines.benchmark import benchmark_output
 from factorstain.baselines.features import pathorob_inspired_index
 from factorstain.baselines.registry import TIER_METHODS, get_baseline, resolve_methods
 from factorstain.evaluation.mmd import (
@@ -109,7 +110,7 @@ def _resolve(config: dict, value: str) -> Path:
 
 
 def _output(config: dict) -> Path:
-    return Path(config["paths"]["outputs_root"]) / config["milestone"]
+    return benchmark_output(config)
 
 
 def _load_rgb(path: str, size: int) -> np.ndarray:

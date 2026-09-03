@@ -269,6 +269,7 @@ BASELINES = {
             composition=True,
             tier=1,
             kind="LEARNED PRIOR WORK",
+            pretraining="IMAGENET_VGG16_PERCEPTUAL_BACKBONE",
             availability="REQUIRES_THIRD_PARTY_SETUP",
             notes="Official model/data boundary adapted to PLISM; strict row appends ScannerLUT.",
         ),

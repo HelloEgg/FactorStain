@@ -4,7 +4,9 @@
 
 The external benchmark consumes the frozen M1 split, morphology split, index, and
 evaluation episode builder. It never regenerates the split and records SHA256 hashes plus
-every train-only target reference in `outputs/m1_sota_benchmark/metadata/`.
+every train-only target reference in `outputs/m1_sota_benchmark/metadata/`. Diagnostic
+development artifacts are isolated under `outputs/m1_sota_benchmark_fast_dev/`, so they
+cannot be mistaken for or reused by the full scientific benchmark.
 
 ```bash
 FAST_DEV_RUN=1 bash shell/m1_sota_benchmark.sh
@@ -20,20 +22,34 @@ SOTA_SEEDS=42 TIER=all bash shell/m1_sota_benchmark.sh
 expect only seed 42. Because the preregistered scientific protocol uses 42, 43, and 44,
 single-seed aggregation is explicitly diagnostic and writes `decision_valid: false`.
 
-`FETCH_THIRD_PARTY=1` fetches reviewed official repositories at immutable commits but
-does not install their legacy dependencies. Neural prior work runs through isolated
-subprocess commands documented in `third_party/README.md`. Missing official code,
-weights, access, or a scientifically valid task mapping is reported explicitly and makes
-the aggregate decision invalid; it never produces a substitute score. Optional explicit
-one-method-per-GPU scheduling is enabled with `PARALLEL_GPU_METHODS=1` and
-`GPU_SLOTS=0,1,2,3`.
+Set up the bundled adapters and pinned official source snapshots once, then run a
+one-seed development pass before the full three-seed benchmark:
 
-Important: fetching a repository is not sufficient to run StainNet, StainGAN, CycleGAN,
-Pix2Pix, HistAuGAN, CAGAN, or SAStainDiff. This repository currently defines the
-isolation/request contract but does not bundle runnable training/inference adapters for
-those seven upstream projects. Unless a compatible adapter command is supplied through
-`FACTORSTAIN_<METHOD>_COMMAND`, each is intentionally reported as `UNAVAILABLE`; the
-console now prints the exact reason and status-record path.
+```bash
+bash shell/setup_external_baselines.sh
+FAST_DEV_RUN=1 SOTA_SEEDS=42 \
+  METHODS=stainnet,staingan,pix2pix,cyclegan,histaugan,cagan,sastaindiff \
+  bash shell/m1_sota_benchmark.sh
+```
+
+The adapters use the active FactorStain PyTorch environment and pinned official model
+architectures. Each fit is restricted to the frozen training/validation manifests and
+writes its source commit, protocol, input hashes, and hyperparameters to
+`checkpoints/seed*/<method>/adapter_state.json`. CAGAN additionally uses its published
+ImageNet-VGG16 perceptual backbone; setup caches those public weights. Custom isolated
+commands remain supported through `FACTORSTAIN_<METHOD>_COMMAND`.
+
+Checkpoint names are scoped by a fit fingerprint covering manifests, reference policy,
+scanner pairs, seed, hyperparameters, official commit, and adapter code.
+
+Completed target-domain checkpoints are reused when a failed method is rerun. An
+interruption inside the currently training target restarts that target; HistAuGAN's
+single multidomain fit restarts as one unit.
+
+`FETCH_THIRD_PARTY=1` only fetches/validates source snapshots. Optional explicit
+one-method-per-GPU scheduling is enabled with `PARALLEL_GPU_METHODS=1` and
+`GPU_SLOTS=0,1,2,3`. HistoFS remains excluded from strict image composition because it
+is a federated WSI feature method, not a tile counterfactual generator.
 
 FactorStain is a milestone-driven research implementation for factorizing pathology
 appearance into ordered H&E staining and scanner-rendering operators:
