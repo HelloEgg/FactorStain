@@ -19,6 +19,10 @@ from .base import AcquisitionMethod, FitContext, MethodUnavailable
 from .classical import ScannerTransformBank, as_uint8_rgb
 
 
+class OfficialAdapterExecutionError(RuntimeError):
+    """An installed official adapter started but failed to execute."""
+
+
 class OfficialSubprocessMethod(AcquisitionMethod):
     """Subprocess adapter for a pinned official neural image implementation.
 
@@ -67,7 +71,7 @@ class OfficialSubprocessMethod(AcquisitionMethod):
             text=True,
         )
         if completed.returncode:
-            raise MethodUnavailable(
+            raise OfficialAdapterExecutionError(
                 f"{self.method_name} official subprocess failed ({completed.returncode}): "
                 f"{(completed.stderr or completed.stdout)[-4000:]}"
             )
@@ -107,12 +111,12 @@ class OfficialSubprocessMethod(AcquisitionMethod):
             response = json.loads(ready)
         except json.JSONDecodeError as exc:
             self.close()
-            raise MethodUnavailable(
+            raise OfficialAdapterExecutionError(
                 f"{self.method_name} inference server did not start; see {log_path}"
             ) from exc
         if response.get("status") != "READY":
             self.close()
-            raise MethodUnavailable(
+            raise OfficialAdapterExecutionError(
                 f"{self.method_name} inference server failed: {response}"
             )
 
@@ -129,15 +133,17 @@ class OfficialSubprocessMethod(AcquisitionMethod):
         if not line:
             return_code = self._server.poll()
             self.close()
-            raise MethodUnavailable(
+            raise OfficialAdapterExecutionError(
                 f"{self.method_name} inference server exited unexpectedly "
                 f"with status {return_code}"
             )
         response = json.loads(line)
         if response.get("status") != "COMPLETE":
-            raise MethodUnavailable(
+            log_path = self.checkpoint_dir / "inference_server.log"
+            raise OfficialAdapterExecutionError(
                 f"{self.method_name} inference failed: "
-                f"{response.get('error_type')}: {response.get('error')}"
+                f"{response.get('error_type')}: {response.get('error')}; "
+                f"full traceback: {log_path}"
             )
 
     def close(self) -> None:
@@ -243,7 +249,7 @@ class OfficialSubprocessMethod(AcquisitionMethod):
             request_path.write_text(json.dumps(request, indent=2), encoding="utf-8")
             self._infer(request, request_path)
             if not output_path.exists():
-                raise MethodUnavailable(
+                raise OfficialAdapterExecutionError(
                     f"{self.method_name} adapter did not create {output_path}"
                 )
             generated = np.asarray(Image.open(output_path).convert("RGB")).copy()

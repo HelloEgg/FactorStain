@@ -46,6 +46,15 @@ SOURCE_DIRS = {
     "cagan": "CAGAN",
     "sastaindiff": "SAStainDiff",
 }
+TRAINING_PROTOCOL_REVISIONS = {
+    "stainnet": 1,
+    "staingan": 1,
+    "cyclegan": 1,
+    "pix2pix": 1,
+    "histaugan": 2,
+    "cagan": 1,
+    "sastaindiff": 1,
+}
 
 
 class AdapterError(RuntimeError):
@@ -139,6 +148,39 @@ def _source_commit(method: str) -> tuple[Path, str]:
     return root, observed
 
 
+def _previous_fit_is_compatible(
+    previous: dict,
+    *,
+    method: str,
+    protocol_revision: int,
+    source_commit: str,
+    seed: int,
+    image_size: int,
+    fast_dev_run: bool,
+    settings: dict,
+    input_hashes: dict[str, str],
+) -> bool:
+    """Allow old checkpoints to survive inference-only adapter changes."""
+    previous_revision = int(previous.get("training_protocol_revision", 1))
+    return (
+        previous.get("method") == method
+        and previous_revision == protocol_revision
+        and previous.get("official_source_commit") == source_commit
+        and previous.get("seed") == seed
+        and previous.get("image_size") == image_size
+        and previous.get("fast_dev_run") == fast_dev_run
+        and previous.get("settings") == settings
+        and previous.get("training_manifest_sha256")
+        == input_hashes["train_manifest"]
+        and previous.get("validation_manifest_sha256")
+        == input_hashes["validation_manifest"]
+        and previous.get("reference_policy_sha256")
+        == input_hashes["reference_policy"]
+        and previous.get("scanner_fit_pairs_sha256")
+        == input_hashes["scanner_fit_pairs"]
+    )
+
+
 def _load_fit_request(method: str, request: dict) -> dict:
     required = (
         "train_manifest",
@@ -230,8 +272,9 @@ def _load_fit_request(method: str, request: dict) -> dict:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     input_hashes = {key: _sha256(path) for key, path in paths.items()}
     adapter_code_sha256 = _sha256(Path(__file__))
+    protocol_revision = TRAINING_PROTOCOL_REVISIONS[method]
     fingerprint_payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "method": method,
         "seed": int(request.get("seed", 42)),
         "image_size": int(request.get("image_size", 256)),
@@ -239,11 +282,29 @@ def _load_fit_request(method: str, request: dict) -> dict:
         "settings": settings,
         "source_commit": commit,
         "input_hashes": input_hashes,
-        "adapter_code_sha256": adapter_code_sha256,
+        "training_protocol_revision": protocol_revision,
     }
     fit_fingerprint = hashlib.sha256(
         json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+    previous_state_path = checkpoint_dir / "adapter_state.json"
+    if previous_state_path.is_file():
+        previous = json.loads(previous_state_path.read_text(encoding="utf-8"))
+        compatible = _previous_fit_is_compatible(
+            previous,
+            method=method,
+            protocol_revision=protocol_revision,
+            source_commit=commit,
+            seed=int(request.get("seed", 42)),
+            image_size=int(request.get("image_size", 256)),
+            fast_dev_run=bool(request.get("fast_dev_run")),
+            settings=settings,
+            input_hashes=input_hashes,
+        )
+        if compatible and previous.get("fit_fingerprint"):
+            # Migrate checkpoints made before protocol revisions replaced the
+            # overly broad whole-file code hash in the fit fingerprint.
+            fit_fingerprint = str(previous["fit_fingerprint"])
     return {
         "train": train.reset_index(drop=True),
         "validation": validation.reset_index(drop=True),
@@ -255,6 +316,7 @@ def _load_fit_request(method: str, request: dict) -> dict:
         "source_commit": commit,
         "input_hashes": input_hashes,
         "adapter_code_sha256": adapter_code_sha256,
+        "training_protocol_revision": protocol_revision,
         "fit_fingerprint": fit_fingerprint,
         "checkpoint_dir": checkpoint_dir,
         "seed": int(request.get("seed", 42)),
@@ -282,6 +344,7 @@ def describe_plan(method: str, request: dict) -> dict:
         "domain_models": 1 if method == "histaugan" else len(domains),
         "checkpoint_dir": str(context["checkpoint_dir"]),
         "fast_dev_run": context["fast_dev"],
+        "training_protocol_revision": context["training_protocol_revision"],
         "settings": context["settings"],
     }
 
@@ -347,6 +410,29 @@ def _load_batch(
     return torch.stack([_rgb_tensor(path, size, unit=unit) for path in paths]).to(
         device, non_blocking=True
     )
+
+
+def _load_random_crop_batch(
+    paths: list[str],
+    resize_size: int,
+    crop_size: int,
+    device: torch.device,
+    rng: np.random.Generator,
+) -> torch.Tensor:
+    if crop_size > resize_size:
+        raise AdapterError("Training crop cannot exceed the resized image size")
+    tensors = []
+    for path in paths:
+        with Image.open(path) as opened:
+            image = opened.convert("RGB").resize(
+                (resize_size, resize_size), Image.Resampling.BICUBIC
+            )
+            array = np.asarray(image, dtype=np.float32) / 255.0
+        top = int(rng.integers(0, resize_size - crop_size + 1))
+        left = int(rng.integers(0, resize_size - crop_size + 1))
+        array = array[top : top + crop_size, left : left + crop_size]
+        tensors.append(torch.from_numpy(array.transpose(2, 0, 1).copy()).mul(2).sub(1))
+    return torch.stack(tensors).to(device, non_blocking=True)
 
 
 @contextlib.contextmanager
@@ -461,7 +547,7 @@ def _histaugan_model(source_root: Path, settings: dict, domains: int):
         dis_norm="None",
         dis_spectral_norm=False,
         num_domains=domains,
-        crop_size=256,
+        crop_size=int(settings["crop_size"]),
         lambda_rec=settings["lambda_rec"],
         lambda_cls=settings["lambda_cls"],
         lambda_cls_G=settings["lambda_cls_G"],
@@ -543,6 +629,7 @@ def _checkpoint_metadata(context: dict, domain: str) -> dict:
         "target_domain": domain,
         "settings": context["settings"],
         "fit_fingerprint": context["fit_fingerprint"],
+        "training_protocol_revision": context["training_protocol_revision"],
     }
 
 
@@ -1286,7 +1373,13 @@ def _train_histaugan(context: dict) -> dict[str, dict]:
                     ]
                     for index in indices
                 ]
-                images = _load_batch(paths, context["image_size"], device)
+                images = _load_random_crop_batch(
+                    paths,
+                    context["image_size"],
+                    int(settings["crop_size"]),
+                    device,
+                    rng,
+                )
                 labels = torch.zeros(batch_size, len(stains), device=device)
                 labels[
                     torch.arange(batch_size, device=device),
@@ -1610,13 +1703,14 @@ def fit_adapter(method: str, request: dict) -> None:
     }
     domains = trainers[method](context)
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "method": method,
         "protocol": context["settings"]["protocol"],
         "implementation": "FactorStain adapter around pinned official architecture",
         "official_source_root": str(context["source_root"]),
         "official_source_commit": context["source_commit"],
         "adapter_code_sha256": context["adapter_code_sha256"],
+        "training_protocol_revision": context["training_protocol_revision"],
         "fit_fingerprint": context["fit_fingerprint"],
         "seed": context["seed"],
         "image_size": context["image_size"],
@@ -1671,9 +1765,11 @@ class AdapterRuntime:
             raise AdapterError(
                 f"Adapter state belongs to {self.state.get('method')}, not {method}"
             )
-        if self.state.get("adapter_code_sha256") != _sha256(Path(__file__)):
+        observed_revision = int(self.state.get("training_protocol_revision", 1))
+        expected_revision = TRAINING_PROTOCOL_REVISIONS[method]
+        if observed_revision != expected_revision:
             raise AdapterError(
-                "External adapter implementation changed after fitting; refit the method"
+                "External training protocol changed after fitting; refit the method"
             )
         self.settings = self.state["settings"]
         self.image_size = int(self.state["image_size"])

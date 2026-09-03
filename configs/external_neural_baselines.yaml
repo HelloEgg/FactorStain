@@ -60,6 +60,7 @@ histaugan:
   protocol: multidomain_train_stain_reference_scanners_prototype_style_inference
   epochs: 1200
   batch_size: 2
+  crop_size: 216
   learning_rate: 0.0001
   d_iter: 3
   lambda_rec: 10.0

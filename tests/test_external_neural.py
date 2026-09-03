@@ -14,7 +14,10 @@ from PIL import Image
 
 from factorstain.baselines import official_neural
 from factorstain.baselines.base import FitContext
-from factorstain.baselines.external import OfficialSubprocessMethod
+from factorstain.baselines.external import (
+    OfficialAdapterExecutionError,
+    OfficialSubprocessMethod,
+)
 
 
 def test_external_settings_have_bounded_fast_dev_overrides():
@@ -76,6 +79,18 @@ def test_default_external_command_uses_bundled_adapter(monkeypatch):
     assert command[0] == sys.executable
     assert command[-2:] == ["--method", "stainnet"]
     assert Path(command[-3]).name == "run_official_baseline_adapter.py"
+
+
+def test_installed_adapter_crash_is_execution_failure(tmp_path):
+    adapter = tmp_path / "fail.py"
+    adapter.write_text("raise RuntimeError('training failed')\n", encoding="utf-8")
+    method = OfficialSubprocessMethod(
+        "histaugan", command=shlex.join([sys.executable, str(adapter)])
+    )
+    request = tmp_path / "request.json"
+    request.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(OfficialAdapterExecutionError, match="subprocess failed"):
+        method._run("fit", request)
 
 
 def test_persistent_adapter_transport(tmp_path, monkeypatch):
@@ -154,6 +169,42 @@ def test_external_checkpoint_path_is_fit_fingerprint_scoped(tmp_path):
     assert "aaaaaaaaaaaa" in first_path.name
 
 
+def test_checkpoint_migration_requires_matching_training_protocol():
+    hashes = {
+        "train_manifest": "train",
+        "validation_manifest": "validation",
+        "reference_policy": "policy",
+        "scanner_fit_pairs": "pairs",
+    }
+    previous = {
+        "method": "stainnet",
+        "official_source_commit": "commit",
+        "seed": 42,
+        "image_size": 256,
+        "fast_dev_run": True,
+        "settings": {"train_steps": 1},
+        "training_manifest_sha256": "train",
+        "validation_manifest_sha256": "validation",
+        "reference_policy_sha256": "policy",
+        "scanner_fit_pairs_sha256": "pairs",
+    }
+    arguments = {
+        "method": "stainnet",
+        "source_commit": "commit",
+        "seed": 42,
+        "image_size": 256,
+        "fast_dev_run": True,
+        "settings": {"train_steps": 1},
+        "input_hashes": hashes,
+    }
+    assert official_neural._previous_fit_is_compatible(
+        previous, protocol_revision=1, **arguments
+    )
+    assert not official_neural._previous_fit_is_compatible(
+        previous, protocol_revision=2, **arguments
+    )
+
+
 def test_external_limit_sorts_string_hashes_deterministically():
     frame = pd.DataFrame(
         {
@@ -170,6 +221,21 @@ def test_external_limit_sorts_string_hashes_deterministically():
     assert first.sample_id.tolist() == expected
     pd.testing.assert_frame_equal(first, second)
     assert "_selection_key" not in first
+
+
+def test_histaugan_training_batch_uses_official_crop_size(tmp_path):
+    image = np.arange(256 * 256 * 3, dtype=np.uint8).reshape(256, 256, 3)
+    path = tmp_path / "tile.png"
+    Image.fromarray(image).save(path)
+    batch = official_neural._load_random_crop_batch(
+        [str(path)],
+        resize_size=256,
+        crop_size=216,
+        device=torch.device("cpu"),
+        rng=np.random.default_rng(42),
+    )
+    assert batch.shape == (1, 3, 216, 216)
+    assert float(batch.min()) >= -1 and float(batch.max()) <= 1
 
 
 def test_sastaindiff_train_only_stain_augmentation(tmp_path):

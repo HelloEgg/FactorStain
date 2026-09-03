@@ -59,6 +59,29 @@ EXTERNAL_STAIN = {
     "sastaindiff",
 }
 EXTERNAL_NEURAL = EXTERNAL_STAIN | {"pix2pix"}
+GENERATION_COLUMNS = [
+    "method",
+    "seed",
+    "display_name",
+    "episode_id",
+    "track",
+    "generated_path",
+    "source_path",
+    "target_path",
+    "stain_cf_path",
+    "scanner_cf_path",
+    "source_sample_id",
+    "target_sample_id",
+    "aligned_group_id",
+    "tissue_type",
+    "source_stain_id",
+    "source_scanner_id",
+    "target_stain_id",
+    "target_scanner_id",
+    "heldout_target_stain_id",
+    "heldout_target_scanner_id",
+    "status",
+]
 
 
 def _resolve(config: dict, value: str) -> Path:
@@ -385,7 +408,7 @@ def _run_images(name: str, config: dict, out: Path) -> dict:
         out / "generated" / name / f"generation_manifest_seed{config['seed']}.csv"
     )
     result_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(result_path, index=False)
+    pd.DataFrame(rows, columns=GENERATION_COLUMNS).to_csv(result_path, index=False)
     if errors:
         pd.DataFrame(errors).to_csv(
             out / "logs" / f"{name}_seed{config['seed']}_episode_errors.csv",
@@ -413,6 +436,14 @@ def _run_images(name: str, config: dict, out: Path) -> dict:
         "track_d_canonical_rows": canonical_rows,
         "track_d_canonical_target_train_cell": canonical_target,
         "fit_fingerprint": getattr(method, "fit_fingerprint", None),
+        "reason": (
+            f"{errors[0]['error_type']}: {errors[0]['error']}" if errors else None
+        ),
+        "episode_error_log": str(
+            out / "logs" / f"{name}_seed{config['seed']}_episode_errors.csv"
+        )
+        if errors
+        else None,
     }
 
 

@@ -340,7 +340,10 @@ def _generation_records(
             (out / "generated" / method).glob("generation_manifest_seed*.csv")
         ):
             if path.exists() and path.stat().st_size:
-                frame = pd.read_csv(path)
+                try:
+                    frame = pd.read_csv(path)
+                except pd.errors.EmptyDataError:
+                    continue
                 if (
                     selected_seeds
                     and method in SEEDED_IMAGE_METHODS

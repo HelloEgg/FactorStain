@@ -56,6 +56,14 @@ def test_registry_scientific_capabilities_and_tiers():
     ]
 
 
+def test_aggregation_ignores_zero_column_failed_manifest(tmp_path):
+    generated = tmp_path / "generated" / "stainnet"
+    generated.mkdir(parents=True)
+    (generated / "generation_manifest_seed42.csv").write_text("\n", encoding="utf-8")
+    records = aggregate_sota_benchmark._generation_records(tmp_path, ["stainnet"], [42])
+    assert records.empty
+
+
 def test_single_seed_runtime_override_preserves_declared_protocol(
     tmp_path, monkeypatch
 ):

@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import json
 import sys
+import traceback
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -43,10 +44,13 @@ def _serve(method: str, request: dict) -> None:
                 infer_one(method, item, runtime=runtime)
             response = {"status": "COMPLETE", "output_path": item["output_path"]}
         except Exception as exc:  # noqa: BLE001 - transport must report remote errors
+            trace = traceback.format_exc()
+            print(trace, file=sys.stderr, flush=True)
             response = {
                 "status": "FAILED",
                 "error_type": type(exc).__name__,
                 "error": str(exc),
+                "traceback": trace,
             }
         print(json.dumps(response), flush=True)
 
