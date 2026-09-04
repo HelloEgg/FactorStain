@@ -169,6 +169,41 @@ class OfficialSubprocessMethod(AcquisitionMethod):
             server_log.close()
             self._server_log = None
 
+    def _scanner_cache_path(self, context: FitContext) -> Path:
+        columns = [
+            "source_scanner",
+            "target_scanner",
+            "source_path",
+            "target_path",
+        ]
+        pairs = context.scanner_pairs[columns].astype(str).sort_values(columns)
+        digest = hashlib.sha256()
+        digest.update(b"factorstain-scanner-lut-v1\n")
+        digest.update(pairs.to_csv(index=False, lineterminator="\n").encode())
+        digest.update(
+            f"\n{context.image_size}:{context.seed}:{self.scanner_bank.grid_size}".encode()
+        )
+        return (
+            context.output_dir
+            / "shared_scanner_lut"
+            / f"scanner_lut_{digest.hexdigest()[:16]}.npz"
+        )
+
+    def _fit_or_load_scanner_bank(self, context: FitContext) -> None:
+        cache_path = self._scanner_cache_path(context)
+        manifest_path = cache_path.with_suffix(".json")
+        if cache_path.is_file() and manifest_path.is_file():
+            self.scanner_bank.load(cache_path)
+            return
+        self.scanner_bank.fit(context.scanner_pairs, context.image_size, context.seed)
+        temporary = cache_path.with_name(
+            f".{cache_path.stem}.{os.getpid()}.tmp{cache_path.suffix}"
+        )
+        self.scanner_bank.save(temporary)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(temporary, cache_path)
+        os.replace(temporary.with_suffix(".json"), manifest_path)
+
     def fit(self, context: FitContext, val_data: pd.DataFrame | None = None) -> None:
         self.context = context
         self.checkpoint_dir = context.output_dir / self.method_name
@@ -213,9 +248,7 @@ class OfficialSubprocessMethod(AcquisitionMethod):
                 request_path.read_bytes() + self.command.encode()
             ).hexdigest()
         if self.append_scanner_lut:
-            self.scanner_bank.fit(
-                context.scanner_pairs, context.image_size, context.seed
-            )
+            self._fit_or_load_scanner_bank(context)
 
     def translate(
         self,

@@ -140,6 +140,46 @@ if args.mode == 'serve':
     np.testing.assert_array_equal(generated, source)
 
 
+def test_external_methods_reuse_shared_scanner_lut(tmp_path, monkeypatch):
+    source_path = tmp_path / "source.png"
+    target_path = tmp_path / "target.png"
+    source = np.full((16, 16, 3), [70, 100, 130], dtype=np.uint8)
+    target = np.clip(source.astype(int) + [12, -5, 9], 0, 255).astype(np.uint8)
+    Image.fromarray(source).save(source_path)
+    Image.fromarray(target).save(target_path)
+    pairs = pd.DataFrame(
+        [
+            {
+                "source_scanner": "X",
+                "target_scanner": "Y",
+                "source_path": str(source_path),
+                "target_path": str(target_path),
+            }
+        ]
+    )
+    context = FitContext(
+        train_index=pd.DataFrame(),
+        reference_policy={},
+        scanner_pairs=pairs,
+        output_dir=tmp_path / "checkpoints",
+        image_size=16,
+        seed=42,
+    )
+    first = OfficialSubprocessMethod("stainnet", grid_size=7)
+    first._fit_or_load_scanner_bank(context)
+    second = OfficialSubprocessMethod("cyclegan", grid_size=7)
+
+    def unexpected_fit(*_args, **_kwargs):
+        raise AssertionError("shared ScannerLUT should have been loaded")
+
+    monkeypatch.setattr(second.scanner_bank, "fit", unexpected_fit)
+    second._fit_or_load_scanner_bank(context)
+    np.testing.assert_array_equal(
+        second.scanner_bank.apply(source, "X", "Y"),
+        first.scanner_bank.apply(source, "X", "Y"),
+    )
+
+
 def test_stain_matrix_and_normalization_preserve_shape():
     y, x = np.mgrid[:32, :32]
     image = (

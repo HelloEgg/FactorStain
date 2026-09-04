@@ -303,6 +303,31 @@ class ScannerTransformBank:
             json.dumps(manifest, indent=2), encoding="utf-8"
         )
 
+    def load(self, path: str | Path) -> None:
+        path = Path(path)
+        manifest_path = path.with_suffix(".json")
+        if not path.is_file() or not manifest_path.is_file():
+            raise FileNotFoundError(f"Scanner transform cache is incomplete: {path}")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("kind") != self.kind:
+            raise ValueError(
+                f"Scanner transform kind is {manifest.get('kind')}, expected {self.kind}"
+            )
+        if int(manifest.get("grid_size", -1)) != self.grid_size:
+            raise ValueError(
+                "Scanner transform grid size is "
+                f"{manifest.get('grid_size')}, expected {self.grid_size}"
+            )
+        transforms: dict[tuple[str, str], ColorTransform] = {}
+        with np.load(path, allow_pickle=False) as arrays:
+            for name, key in manifest.get("keys", {}).items():
+                if name not in arrays or len(key) != 2:
+                    raise ValueError(f"Invalid scanner transform cache entry: {name}")
+                transforms[(str(key[0]), str(key[1]))] = ColorTransform(
+                    self.kind, arrays[name].copy(), self.grid_size
+                )
+        self.transforms = transforms
+
 
 class NoAdaptMethod(AcquisitionMethod):
     method_name = "noadapt"

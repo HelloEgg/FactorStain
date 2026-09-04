@@ -413,14 +413,6 @@ def main() -> None:
         ),
     )
     manifest = _enrich_manifest(_track_episodes(pairs, index, train_cells), index)
-    if config["fast_dev_run"] and not manifest.empty:
-        first = manifest.iloc[0]
-        same_cell = manifest.heldout_target_stain_id.astype(str).eq(
-            str(first.heldout_target_stain_id)
-        ) & manifest.heldout_target_scanner_id.astype(str).eq(
-            str(first.heldout_target_scanner_id)
-        )
-        manifest = manifest[same_cell].reset_index(drop=True)
     if manifest.empty:
         raise RuntimeError(
             "The exact M1 evaluation episode builder produced no episodes"
@@ -519,11 +511,16 @@ def main() -> None:
     (out / "LITERATURE_BASELINES.md").write_text(
         _literature_markdown(), encoding="utf-8"
     )
+    track_counts = ", ".join(
+        f"{track}={count}"
+        for track, count in manifest.track.value_counts().sort_index().items()
+    )
     print(f"Frozen combination split SHA256: {split_hashes['combination_split']}")
     print(f"Frozen morphology split SHA256:  {split_hashes['morphology_split']}")
     print(
         f"Prepared immutable evaluation manifest: {len(manifest):,} episodes; "
-        f"strict training rows: {len(train):,}; scanner pairs: {len(scanner_pairs):,}"
+        f"tracks: {track_counts}; strict training rows: {len(train):,}; "
+        f"scanner pairs: {len(scanner_pairs):,}"
     )
 
 

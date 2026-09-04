@@ -64,6 +64,21 @@ def test_aggregation_ignores_zero_column_failed_manifest(tmp_path):
     assert records.empty
 
 
+def test_image_method_rejects_missing_track_before_fitting(tmp_path, monkeypatch):
+    metadata = tmp_path / "metadata"
+    metadata.mkdir()
+    pd.DataFrame({"track": ["B"]}).to_parquet(
+        metadata / "evaluation_manifest.parquet", index=False
+    )
+
+    def unexpected_fit_context(*_args, **_kwargs):
+        raise AssertionError("method fitting must not start without an applicable track")
+
+    monkeypatch.setattr(run_sota_method, "_fit_context", unexpected_fit_context)
+    with pytest.raises(RuntimeError, match="supports tracks.*manifest contains"):
+        run_sota_method._run_images("stainnet", {}, tmp_path)
+
+
 def test_single_seed_runtime_override_preserves_declared_protocol(
     tmp_path, monkeypatch
 ):
@@ -109,6 +124,11 @@ def test_scanner_lut_uses_paired_color_response(tmp_path):
     before = np.abs(source.astype(float) - target).mean()
     after = np.abs(corrected.astype(float) - target).mean()
     assert after < before
+    cache = tmp_path / "scanner_lut.npz"
+    bank.save(cache)
+    restored = ScannerTransformBank("lut", grid_size=9)
+    restored.load(cache)
+    np.testing.assert_array_equal(restored.apply(source, "X", "Y"), corrected)
 
 
 def test_feature_harmonizers_fit_training_pairs_only():
@@ -370,6 +390,13 @@ def test_fast_sota_output_contract(tmp_path, monkeypatch):
         sys, "argv", ["prepare_sota_benchmark.py", "--config", "unused"]
     )
     prepare_sota_benchmark.main()
+    prepared_manifest = pd.read_parquet(
+        outputs
+        / "m1_sota_benchmark_fast_dev"
+        / "metadata"
+        / "evaluation_manifest.parquet"
+    )
+    assert {"A", "B", "C"} <= set(prepared_manifest.track)
 
     monkeypatch.setattr(run_sota_method, "load_config", lambda _: config.copy())
     monkeypatch.setattr(

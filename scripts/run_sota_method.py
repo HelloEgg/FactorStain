@@ -285,14 +285,20 @@ def _canonicalize_feature_cohort(
 
 
 def _run_images(name: str, config: dict, out: Path) -> dict:
+    manifest = pd.read_parquet(out / "metadata" / "evaluation_manifest.parquet")
+    tracks = IMAGE_TRACKS[name]
+    available_tracks = sorted(set(manifest.track.astype(str)))
+    manifest = manifest[manifest.track.isin(tracks)].copy()
+    if manifest.empty:
+        raise RuntimeError(
+            f"{name} has no applicable evaluation episodes: supports "
+            f"tracks {sorted(tracks)}, manifest contains {available_tracks}"
+        )
     if name in {"joint", "parallel", "factorstain"}:
         _ensure_internal_checkpoint(name, config, out)
     context = _fit_context(config, out)
     method = _create_method(name, config, out)
     method.fit(context)
-    manifest = pd.read_parquet(out / "metadata" / "evaluation_manifest.parquet")
-    tracks = IMAGE_TRACKS[name]
-    manifest = manifest[manifest.track.isin(tracks)].copy()
     if isinstance(method, OfficialSubprocessMethod):
         # The persistent adapter keeps one target model resident. Grouping by target
         # avoids repeatedly loading large target-bank checkpoints and does not change
